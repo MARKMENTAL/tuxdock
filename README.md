@@ -11,6 +11,7 @@ It offers a clean, interactive menu for common Docker operations like pulling im
 - 🔹 **Interactive container management** — start, stop, remove, or attach to containers with simple numbered menus.
 - 🔹 **Port mapping made clear** — automatically prompts for and explains host ↔ container port bindings.
 - 🔹 **Image operations** — pull, list, and delete Docker images.
+- 🔹 **Script-to-image workflow** — turn a bash setup script into a Dockerfile and build the resulting image in one go.
 - 🔹 **Quick MySQL setup** — spin up a MySQL container with version, password, and port configuration in seconds.
 - 🔹 **Get container IP address** — cleanly retrieves and displays only the container’s assigned IP.
 - 🔹 **Modern C++ design** — built with classes, minimal dependencies, and clear abstractions.
@@ -59,7 +60,8 @@ Tux-Dock: Docker Management Menu
 10. Attach Shell to Running Container
 11. Spin Up MySQL Container
 12. Get Container IP Address
-13. Exit
+13. Create Dockerfile & Build Image from Bash Script
+14. Exit
 ```
 
 Each action guides you through the required steps.

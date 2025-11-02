@@ -197,7 +197,7 @@ void DockerManager::showContainerIP() {
 }
 
 void DockerManager::createDockerfile() {
-    string baseImage, bashScriptPath, outputFile;
+    string baseImage, bashScriptPath, outputFile, imageName;
     cout << "Enter base Docker image (e.g., ubuntu:22.04): ";
     cin >> baseImage;
 
@@ -243,8 +243,17 @@ void DockerManager::createDockerfile() {
     scriptFile.close();
 
     cout << "Dockerfile created successfully: " << outputFile << "\n";
-    cout << "You can edit it or build it with:\n";
-    cout << "  docker build -t myimage -f " << outputFile << " .\n";
+    cout << "Enter image name to build from this Dockerfile (e.g., myimage): ";
+    cin >> imageName;
+
+    if (imageName.empty()) {
+        cout << "No image name provided. Skipping build.\n";
+        return;
+    }
+
+    cout << "Building Docker image '" << imageName << "'...\n";
+    runCommand("docker build -t " + imageName + " -f " + outputFile + " .");
+    cout << "Docker build command executed.\n";
 }
 
 // ---------------- Menu ----------------
@@ -268,7 +277,7 @@ int main() {
              << "10. Attach Shell to Running Container\n"
              << "11. Spin Up MySQL Container\n"
              << "12. Get Container IP Address\n"
-             << "13. Create Dockerfile from Bash Script\n"
+             << "13. Create Dockerfile & Build Image from Bash Script\n"
              << "14. Exit\n"
              << "----------------------------------\n"
              << "Choose an option: ";
@@ -297,5 +306,3 @@ int main() {
         }
     }
 }
-
-
