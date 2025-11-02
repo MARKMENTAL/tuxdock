@@ -14,6 +14,7 @@ It offers a clean, interactive menu for common Docker operations like pulling im
 - 🔹 **Script-to-image workflow** — turn a bash setup script into a Dockerfile and build the resulting image in one go.
 - 🔹 **Quick MySQL setup** — spin up a MySQL container with version, password, and port configuration in seconds.
 - 🔹 **Get container IP address** — cleanly retrieves and displays only the container’s assigned IP.
+- 🔹 **Run detached commands** — execute background jobs inside a container without attaching an interactive shell.
 - 🔹 **Modern C++ design** — built with classes, minimal dependencies, and clear abstractions.
 
 ---
@@ -58,10 +59,11 @@ Tux-Dock: Docker Management Menu
 8.  Stop Container
 9.  Remove Container
 10. Attach Shell to Running Container
-11. Spin Up MySQL Container
-12. Get Container IP Address
-13. Create Dockerfile & Build Image from Bash Script
-14. Exit
+11. Run Detached Command in Container
+12. Spin Up MySQL Container
+13. Get Container IP Address
+14. Create Dockerfile & Build Image from Bash Script
+15. Exit
 ```
 
 Each action guides you through the required steps.
@@ -92,6 +94,7 @@ class DockerManager {
     void runContainerInteractive();
     void listContainers() const;
     void startInteractive();
+    void execDetachedCommand();
     void stopContainer();
     void showContainerIP();
 };
