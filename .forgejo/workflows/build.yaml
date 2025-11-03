@@ -1,0 +1,23 @@
+name: Build TuxDock
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+      - feature/**
+
+jobs:
+  build:
+    runs-on: [self-hosted]  
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Compile tux-dock
+        run: |
+          #!/bin/sh
+          g++ -std=c++17 main.cpp -o tux-dock && echo "tux-dock successfully compiled!"
+
+
