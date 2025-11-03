@@ -11,11 +11,12 @@ jobs:
     runs-on: [self-hosted]
     env:
       BRANCH: ${{ github.ref_name }}
+      COMMIT: ${{ github.sha }}
     steps:
       - name: Clone current branch
         run: |
           git clone --branch "$BRANCH" https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
-          echo "✅ Checked out branch $BRANCH"
+          echo "✅ Checked out branch $BRANCH ($COMMIT)"
 
       - name: Compile tux-dock
         run: |
@@ -26,16 +27,19 @@ jobs:
       - name: Verify build
         run: file tux-dock
 
-      - name: Prepare build artifact (tarball)
+      - name: Prepare build artifact (tar.gz)
         run: |
           mkdir -p build/"$BRANCH"
           mv tux-dock build/"$BRANCH"/
-          tar czf tux-dock-linux-x86_64-"$BRANCH".tar.gz -C build "$BRANCH"
-          echo "📦 Created tux-dock-linux-x86_64-$BRANCH.tar.gz"
+          SHORT_HASH=$(echo "$COMMIT" | cut -c1-7)
+          TAR_NAME="tux-dock-linux-x86_64-${BRANCH}-${SHORT_HASH}.tar.gz"
+          tar czf "$TAR_NAME" -C build "$BRANCH"
+          echo "📦 Created $TAR_NAME"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          name: tux-dock-linux-x86_64-${{ env.BRANCH }}
-          path: tux-dock-linux-x86_64-${{ env.BRANCH }}.tar.gz
+          name: tux-dock-linux-x86_64-${{ env.BRANCH }}-${{ env.COMMIT }}
+          path: tux-dock-linux-x86_64-${{ env.BRANCH }}-*.tar.gz
+
 
