@@ -1,28 +1,38 @@
 name: Build & Upload tux-dock
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+      - dev
 
 jobs:
   build:
     runs-on: [self-hosted]
     steps:
-      - name: Manual clone
+      - name: Clone current branch
         run: |
-          git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
-          echo "✅ Repository cloned successfully"
+          git clone --branch ${{ github.ref_name }} https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
+          echo "✅ Checked out branch ${{ github.ref_name }}"
 
       - name: Compile tux-dock
         run: |
           g++ -std=c++17 main.cpp -o tux-dock
-          echo "🎉 tux-dock successfully compiled!"
+          chmod +x tux-dock
+          echo "🎉 tux-dock successfully compiled and marked executable!"
 
       - name: Verify build
         run: file tux-dock
 
+      - name: Prepare artifact directory
+        run: |
+          mkdir -p build/${{ github.ref_name }}
+          mv tux-dock build/${{ github.ref_name }}/
+          echo "📁 Prepared build directory: build/${{ github.ref_name }}/tux-dock"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          # The artifact itself will be a zip automatically
           name: tux-dock-linux-x86_64
-          path: tux-dock
+          path: build/
 
