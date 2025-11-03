@@ -24,15 +24,17 @@ jobs:
       - name: Verify build
         run: file tux-dock
 
-      - name: Prepare artifact directory
+      - name: Package build as tar
         run: |
           mkdir -p build/${{ github.ref_name }}
+          chmod +x tux-dock
           mv tux-dock build/${{ github.ref_name }}/
-          echo "📁 Prepared build directory: build/${{ github.ref_name }}/tux-dock"
-
+          tar czf tux-dock-linux-x86_64-${{ github.ref_name }}.tar.gz -C build ${ { github.ref_name } }
+          echo "📦 Created tarball with preserved permissions"
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          name: tux-dock-linux-x86_64
-          path: build/
+          name: tux-dock-linux-x86_64-${{ github.ref_name }}
+          path: tux-dock-linux-x86_64-${{ github.ref_name }}.tar.gz
+
 
