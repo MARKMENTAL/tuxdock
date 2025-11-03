@@ -6,6 +6,7 @@
 #include <array>
 #include <fstream>
 #include <filesystem>
+#include <limits>
 
 using namespace std;
 
@@ -21,6 +22,7 @@ public:
     void stopContainer();
     void removeContainer();
     void execShell();
+    void execDetachedCommand();
     void createDockerfile();
     void spinUpMySQL();
     void showContainerIP();
@@ -153,6 +155,35 @@ void DockerManager::execShell() {
     if (!id.empty()) runCommand("docker exec -it " + id + " /bin/sh");
 }
 
+void DockerManager::execDetachedCommand() {
+    string id = selectContainer("Select container to run command in (detached)");
+    if (id.empty()) return;
+
+    // Flush any leftover newline before using getline
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+    string command;
+    cout << "Enter command to execute inside the container: ";
+    getline(cin, command);
+
+    if (command.empty()) {
+        cout << "No command entered. Aborting.\n";
+        return;
+    }
+
+    string escapedCommand;
+    escapedCommand.reserve(command.size() * 2);
+    for (char c : command) {
+        if (c == '"' || c == '\\')
+            escapedCommand += '\\';
+        escapedCommand += c;
+    }
+
+    cout << "Executing command in detached mode...\n";
+    runCommand("docker exec -d " + id + " /bin/sh -c \"" + escapedCommand + "\"");
+    cout << "Command dispatched.\n";
+}
+
 void DockerManager::spinUpMySQL() {
     string port, password, version;
     cout << "Enter port mapping (e.g., 3306:3306): ";
@@ -275,10 +306,11 @@ int main() {
              << "8.  Stop Container\n"
              << "9.  Remove Container\n"
              << "10. Attach Shell to Running Container\n"
-             << "11. Spin Up MySQL Container\n"
-             << "12. Get Container IP Address\n"
-             << "13. Create Dockerfile & Build Image from Bash Script\n"
-             << "14. Exit\n"
+             << "11. Run Detached Command in Container\n"
+             << "12. Spin Up MySQL Container\n"
+             << "13. Get Container IP Address\n"
+             << "14. Create Dockerfile & Build Image from Bash Script\n"
+             << "15. Exit\n"
              << "----------------------------------\n"
              << "Choose an option: ";
 
@@ -295,10 +327,11 @@ int main() {
             case 8: docker.stopContainer(); break;
             case 9: docker.removeContainer(); break;
             case 10: docker.execShell(); break;
-            case 11: docker.spinUpMySQL(); break;
-            case 12: docker.showContainerIP(); break;
-	    case 13: docker.createDockerfile(); break;		
-            case 14:
+            case 11: docker.execDetachedCommand(); break;
+            case 12: docker.spinUpMySQL(); break;
+            case 13: docker.showContainerIP(); break;
+            case 14: docker.createDockerfile(); break;
+            case 15:
                 cout << "Exiting Tux-Dock.\n";
                 return 0;
             default:
