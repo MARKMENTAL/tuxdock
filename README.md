@@ -31,7 +31,7 @@ It offers a clean, interactive menu for common Docker operations like pulling im
 
 ```bash
 # Clone the repo
-git clone https://mentalnet.xyz/gitea/markmental/tuxdock.git
+git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git
 cd tuxdock
 
 # Build the binary
