@@ -23,6 +23,6 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           # The artifact itself will be a zip automatically
-          name: tux-dock-linux-x86_64.zip
+          name: tux-dock-linux-x86_64
           path: tux-dock
 
