@@ -17,11 +17,10 @@ jobs:
           echo "🎉 tux-dock successfully compiled!"
 
       - name: Verify build
-        run: |
-          file tux-dock
+        run: file tux-dock
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: tux-dock-linux-x86_64
           path: tux-dock
