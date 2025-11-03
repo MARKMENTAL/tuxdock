@@ -42,6 +42,9 @@ g++ -std=c++17 tux-dock.cpp -o tux-dock
 sudo ./tux-dock
 ````
 
+Prefer a prebuilt binary? The CI runner publishes build artifacts for the latest commits at:
+https://mentalnet.xyz/forgejo/markmental/tuxdock/actions
+
 ---
 
 ## 🖥️ Menu Overview
