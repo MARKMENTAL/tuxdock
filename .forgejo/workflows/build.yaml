@@ -19,14 +19,10 @@ jobs:
       - name: Verify build
         run: file tux-dock
 
-      - name: Package build as tar.gz
-        run: |
-          tar -czvf tux-dock-linux-x86_64.tar.gz tux-dock
-          echo "📦 Created tux-dock-linux-x86_64.tar.gz"
-
-      - name: Upload build artifact (tar.gz)
+      - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          name: tux-dock-linux-x86_64-tar
-          path: tux-dock-linux-x86_64.tar.gz
+          # The artifact itself will be a zip automatically
+          name: tux-dock-linux-x86_64.zip
+          path: tux-dock
 
