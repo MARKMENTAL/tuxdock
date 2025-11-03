@@ -1,0 +1,21 @@
+name: Build TuxDock
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: [self-hosted]
+    steps:
+      - name: Manual clone
+        run: |
+          git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
+          echo "✅ Repository cloned successfully"
+
+      - name: Compile tux-dock
+        run: |
+          g++ -std=c++17 main.cpp -o tux-dock && echo "🎉 tux-dock successfully compiled!"
+
+      - name: Verify build
+        run: |
+          file tux-dock || echo "⚠️ tux-dock binary not found!"
+
