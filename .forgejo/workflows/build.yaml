@@ -9,32 +9,33 @@ on:
 jobs:
   build:
     runs-on: [self-hosted]
+    env:
+      BRANCH: ${{ github.ref_name }}
     steps:
       - name: Clone current branch
         run: |
-          git clone --branch ${{ github.ref_name }} https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
-          echo "✅ Checked out branch ${{ github.ref_name }}"
+          git clone --branch "$BRANCH" https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
+          echo "✅ Checked out branch $BRANCH"
 
       - name: Compile tux-dock
         run: |
           g++ -std=c++17 main.cpp -o tux-dock
           chmod +x tux-dock
-          echo "🎉 tux-dock successfully compiled and marked executable!"
+          echo "🎉 tux-dock compiled and marked executable!"
 
       - name: Verify build
         run: file tux-dock
 
-      - name: Package build as tar
+      - name: Prepare build artifact (tarball)
         run: |
-          mkdir -p build/${{ github.ref_name }}
-          chmod +x tux-dock
-          mv tux-dock build/${{ github.ref_name }}/
-          tar czf tux-dock-linux-x86_64-${{ github.ref_name }}.tar.gz -C build ${ { github.ref_name } }
-          echo "📦 Created tarball with preserved permissions"
+          mkdir -p build/"$BRANCH"
+          mv tux-dock build/"$BRANCH"/
+          tar czf tux-dock-linux-x86_64-"$BRANCH".tar.gz -C build "$BRANCH"
+          echo "📦 Created tux-dock-linux-x86_64-$BRANCH.tar.gz"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          name: tux-dock-linux-x86_64-${{ github.ref_name }}
-          path: tux-dock-linux-x86_64-${{ github.ref_name }}.tar.gz
-
+          name: tux-dock-linux-x86_64-${{ env.BRANCH }}
+          path: tux-dock-linux-x86_64-${{ env.BRANCH }}.tar.gz
 
