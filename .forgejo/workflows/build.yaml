@@ -1,4 +1,4 @@
-name: Build TuxDock
+name: Build & Upload tux-dock
 
 on: [push]
 
@@ -13,9 +13,17 @@ jobs:
 
       - name: Compile tux-dock
         run: |
-          g++ -std=c++17 main.cpp -o tux-dock && echo "🎉 tux-dock successfully compiled!"
+          g++ -std=c++17 main.cpp -o tux-dock
+          echo "🎉 tux-dock successfully compiled!"
 
       - name: Verify build
         run: |
-          file tux-dock || echo "⚠️ tux-dock binary not found!"
+          file tux-dock
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tux-dock-linux-x86_64
+          path: tux-dock
+
 

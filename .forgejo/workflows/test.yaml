@@ -1,8 +1,0 @@
-on: [push]
-
-jobs:
-  test:
-    runs-on: self-hosted
-    steps:
-      - run: echo "All good from tuxdock runner on $(hostname)!"
-
