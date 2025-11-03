@@ -4,7 +4,7 @@ on: [push]
 
 jobs:
   build:
-    runs-on: [self-hosted-trixie]
+    runs-on: [self-hosted]
     steps:
       - name: Manual clone
         run: |
