@@ -93,15 +93,47 @@ Tux-Dock is built using a single class:
 
 ```cpp
 class DockerManager {
+public:
     void pullImage();
     void runContainerInteractive();
     void listContainers() const;
+    void listImages() const;
     void startInteractive();
-    void execDetachedCommand();
+    void startDetached();
+    void deleteImage();
     void stopContainer();
+    void removeContainer();
+    void execShell();
+    void execDetachedCommand();
+    void createDockerfile();
+    void spinUpMySQL();
     void showContainerIP();
+
+private:
+    static void runCommand(const std::string& cmd);
+    std::vector<std::pair<std::string, std::string>> getContainerList() const;
+    std::string selectContainer(const std::string& prompt);
 };
 ```
+
+### Method Reference
+- `pullImage` — prompt for an image name and run `docker pull`.
+- `runContainerInteractive` — configure port mappings and start a new interactive container session.
+- `listContainers` — show all Docker containers (running or stopped).
+- `listImages` — list local Docker images.
+- `startInteractive` — start an existing container and attach a shell.
+- `startDetached` — start an existing container in detached mode.
+- `deleteImage` — remove a local Docker image.
+- `stopContainer` — stop a running container.
+- `removeContainer` — delete a container after confirmation.
+- `execShell` — attach a shell to a running container.
+- `execDetachedCommand` — run a background command inside a container.
+- `createDockerfile` — turn a bash script into a Dockerfile and build an image.
+- `spinUpMySQL` — launch a MySQL container with custom port, password, and version.
+- `showContainerIP` — display a container’s IP address.
+- `runCommand` — helper to invoke shell commands.
+- `getContainerList` — retrieve Docker container IDs and names for selection menus.
+- `selectContainer` — present a menu to pick a container interactively.
 
 This makes the codebase **extensible** — adding new Docker features like `docker logs` or `docker stats` requires only a small new method.
 
