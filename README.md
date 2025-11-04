@@ -32,11 +32,11 @@ It offers a clean, interactive menu for common Docker operations like pulling im
 
 ```bash
 # Clone the repo
-git clone https://mentalnet.xyz/gitea/markmental/tuxdock.git
+git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git
 cd tuxdock
 
 # Build the binary
-g++ -std=c++17 tux-dock.cpp -o tux-dock
+g++ -std=c++17 main.cpp -o tux-dock
 
 # Run it (requires Docker permissions)
 sudo ./tux-dock
