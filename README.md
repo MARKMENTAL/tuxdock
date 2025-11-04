@@ -36,11 +36,14 @@ git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git
 cd tuxdock
 
 # Build the binary
-g++ -std=c++17 tux-dock.cpp -o tux-dock
+g++ -std=c++17 main.cpp -o tux-dock
 
 # Run it (requires Docker permissions)
 sudo ./tux-dock
 ````
+
+Prefer a prebuilt binary? The CI runner publishes build artifacts for the latest commits at:
+https://mentalnet.xyz/forgejo/markmental/tuxdock/actions
 
 ---
 
