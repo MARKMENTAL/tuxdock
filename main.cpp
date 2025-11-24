@@ -106,21 +106,71 @@ string DockerManager::selectContainer(const string& prompt) {
 // ---------------- Docker Actions ----------------
 
 void DockerManager::pullImage() {
+    const vector<string> images = {"debian:stable", "ubuntu:noble", "rockylinux:9.3", "alpine:latest"};
+    
+    cout << "\nSelect Docker image to pull:\n";
+    for (size_t i = 0; i < images.size(); ++i) cout << i + 1 << ". " << images[i] << "\n";
+    cout << images.size() + 1 << ". Enter custom image\n";
+    cout << "Choose an option (1-" << images.size() + 1 << "): ";
+    
+    int choice;
+    cin >> choice;
+    
     string image;
-    cout << "Enter Docker image to pull (e.g., alpine): ";
-    cin >> image;
+    if (choice >= 1 && choice <= static_cast<int>(images.size())) {
+        image = images[choice - 1];
+    } else if (choice == static_cast<int>(images.size()) + 1) {
+        cout << "Enter custom Docker image name: ";
+        cin >> image;
+    } else {
+        cout << "Invalid selection. Aborting.\n";
+        return;
+    }
+    
+    cout << "Pulling image: " << image << "\n";
     runCommand("docker pull " + image);
 }
 
 void DockerManager::runContainerInteractive() {
+    // Get list of available images
+    auto images = getImageList();
     string image;
-    cout << "Enter Docker image to run interactively (e.g., alpine): ";
-    cin >> image;
-
+    
+    if (images.empty()) {
+        cout << "No Docker images found. Please pull an image first.\n";
+        return;
+    }
+    
+    // Display available images
+    cout << "\nAvailable Docker Images:\n";
+    int idx = 1;
+    for (const auto& img : images) {
+        cout << idx++ << ". " << img.second << " (" << img.first.substr(0, 12) << ")\n";
+    }
+    
+    // Prompt user to select or enter custom image
+    cout << idx << ". Enter custom Docker image name\n";
+    cout << "Choose an option (1-" << images.size() << " or " << idx << "): ";
+    
+    int choice;
+    cin >> choice;
+    
+    if (choice >= 1 && choice <= static_cast<int>(images.size())) {
+        // User selected an existing image
+        image = images[choice - 1].second;
+    } else if (choice == idx) {
+        // User wants to enter custom image name
+        cout << "Enter custom Docker image name: ";
+        cin >> image;
+    } else {
+        cout << "Invalid selection. Aborting.\n";
+        return;
+    }
+    
+    // Continue with port mapping
     int portCount;
     cout << "How many port mappings? ";
     cin >> portCount;
-
     vector<string> ports;
     for (int i = 0; i < portCount; ++i) {
         string port;
@@ -129,14 +179,11 @@ void DockerManager::runContainerInteractive() {
         cin >> port;
         ports.push_back("-p " + port);
     }
-
     string portArgs;
     for (const auto& p : ports) portArgs += p + " ";
-
     cout << "\nPort Forwarding Explanation:\n"
          << "  '-p hostPort:containerPort' exposes the container’s port to the host.\n"
          << "  Example: '-p 8080:80' allows access via http://localhost:8080\n\n";
-
     runCommand("docker run -it " + portArgs + image + " /bin/sh");
 }
 
@@ -380,3 +427,4 @@ int main() {
         }
     }
 }
+
