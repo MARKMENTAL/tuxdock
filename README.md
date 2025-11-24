@@ -113,6 +113,8 @@ public:
 private:
     static void runCommand(const std::string& cmd);
     std::vector<std::pair<std::string, std::string>> getContainerList() const;
+    /* NEW helper – retrieves all images */
+    std::vector<std::pair<std::string, std::string>> getImageList() const;
     std::string selectContainer(const std::string& prompt);
 };
 ```
@@ -134,6 +136,7 @@ private:
 - `showContainerIP` — display a container’s IP address.
 - `runCommand` — helper to invoke shell commands.
 - `getContainerList` — retrieve Docker container IDs and names for selection menus.
+- `getImageList` — gather local Docker image IDs and names for menus and reporting.
 - `selectContainer` — present a menu to pick a container interactively.
 
 This makes the codebase **extensible** — adding new Docker features like `docker logs` or `docker stats` requires only a small new method.
