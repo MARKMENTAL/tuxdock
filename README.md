@@ -10,12 +10,13 @@ It offers a clean, interactive menu for common Docker operations like pulling im
 
 - 🔹 **Interactive container management** — start, stop, remove, or attach to containers with simple numbered menus.
 - 🔹 **Port mapping made clear** — automatically prompts for and explains host ↔ container port bindings.
-- 🔹 **Image operations** — pull, list, and delete Docker images.
+- 🔹 **Image operations** — pull, list, and delete Docker images; curated pull list (Debian, Ubuntu, Rocky Linux, Alpine) plus a custom entry to grab common bases without retyping them.
 - 🔹 **Script-to-image workflow** — turn a bash setup script into a Dockerfile and build the resulting image in one go.
 - 🔹 **Quick MySQL setup** — spin up a MySQL container with version, password, and port configuration in seconds.
 - 🔹 **Get container IP address** — cleanly retrieves and displays only the container’s assigned IP.
 - 🔹 **Run detached commands** — execute background jobs inside a container without attaching an interactive shell.
 - 🔹 **Modern C++ design** — built with classes, minimal dependencies, and clear abstractions.
+- 🔹 **Interactive run flow** — lists pulled images with numeric selection, allows entering a custom image name, and keeps the port-mapping explanation in place before launching `/bin/sh`.
 
 ---
 
