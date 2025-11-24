@@ -31,12 +31,32 @@ private:
     static void runCommand(const string& cmd);
     vector<pair<string, string>> getContainerList() const;
     string selectContainer(const string& prompt);
+    /* NEW helper – retrieves all images */
+    vector<pair<string, string>> getImageList() const;
 };
 
 // ---------------- Core Utility ----------------
 
 void DockerManager::runCommand(const string& cmd) {
     system(cmd.c_str());
+}
+
+vector<pair<string, string>> DockerManager::getImageList() const {
+    vector<pair<string, string>> images;
+    array<char, 256> buffer{};
+    string result;
+    FILE* pipe = popen("docker images --format '{{.ID}} {{.Repository}}:{{.Tag}}'", "r");
+    if (!pipe) return images;
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+        result = buffer.data();
+        stringstream ss(result);
+        string id, repoTag;
+        ss >> id >> repoTag;
+        if (!id.empty() && !repoTag.empty())
+            images.emplace_back(id, repoTag);
+    }
+    pclose(pipe);
+    return images;
 }
 
 vector<pair<string, string>> DockerManager::getContainerList() const {
@@ -134,10 +154,31 @@ void DockerManager::startDetached() {
 }
 
 void DockerManager::deleteImage() {
-    string image;
-    cout << "Enter image name or ID to delete: ";
-    cin >> image;
-    runCommand("docker rmi " + image);
+    auto images = getImageList();
+    if (images.empty()) {
+        cout << "No Docker images found.\n";
+        return;
+    }
+
+    cout << "\nAvailable Images:\n";
+    int idx = 1;
+    for (const auto& img : images) {
+        cout << idx++ << ". " << img.second << " (" << img.first.substr(0, 12) << ")\n";
+    }
+
+    int choice;
+    cout << "Select image to delete (1-" << images.size() << "): ";
+    cin >> choice;
+
+    if (choice < 1 || choice > static_cast<int>(images.size())) {
+        cout << "Invalid selection.\n";
+        return;
+    }
+
+    const string& id = images[choice - 1].first;
+    cout << "Deleting image: " << images[choice - 1].second
+         << " (ID: " << id << ") ...\n";
+    runCommand("docker rmi " + id);
 }
 
 void DockerManager::stopContainer() {
