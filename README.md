@@ -113,9 +113,9 @@ public:
 private:
     static void runCommand(const std::string& cmd);
     std::vector<std::pair<std::string, std::string>> getContainerList() const;
+    std::string selectContainer(const std::string& prompt);
     /* NEW helper – retrieves all images */
     std::vector<std::pair<std::string, std::string>> getImageList() const;
-    std::string selectContainer(const std::string& prompt);
 };
 ```
 
