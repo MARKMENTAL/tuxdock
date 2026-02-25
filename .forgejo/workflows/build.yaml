@@ -13,6 +13,11 @@ jobs:
       BRANCH: ${{ github.ref_name }}
       COMMIT: ${{ github.sha }}
     steps:
+      - name: Install CMake
+        run: |
+          apt-get update && apt-get install cmake
+          echo "✅ CMake build tool installed."
+
       - name: Clone current branch
         run: |
           git clone --branch "$BRANCH" https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
