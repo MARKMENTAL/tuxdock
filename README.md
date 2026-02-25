@@ -1,175 +1,150 @@
-# 🐧 Tux-Dock
-### A lightweight C++ Docker management CLI
+# Tux-Dock
+### A lightweight C++ Docker TUI
 
-Tux-Dock is a simple, modern, and fast **C++17** command-line utility for managing Docker containers and images.
-It offers a clean, interactive menu for common Docker operations like pulling images, running containers, and inspecting IP addresses — without the overhead of complex GUIs or scripts.
-
----
-
-## ✨ Features
-
-- 🔹 **Interactive container management** — start, stop, remove, or attach to containers with simple numbered menus.
-- 🔹 **Port mapping made clear** — automatically prompts for and explains host ↔ container port bindings.
-- 🔹 **Image operations** — pull, list, and delete Docker images; curated pull list (Debian, Ubuntu, Rocky Linux, Alpine) plus a custom entry to grab common bases without retyping them.
-- 🔹 **Script-to-image workflow** — turn a bash setup script into a Dockerfile and build the resulting image in one go.
-- 🔹 **Quick MySQL setup** — spin up a MySQL container with version, password, and port configuration in seconds.
-- 🔹 **Get container IP address** — cleanly retrieves and displays only the container’s assigned IP.
-- 🔹 **Run detached commands** — execute background jobs inside a container without attaching an interactive shell.
-- 🔹 **Modern C++ design** — built with classes, minimal dependencies, and clear abstractions.
-- 🔹 **Interactive run flow** — lists pulled images with numeric selection, allows entering a custom image name, and keeps the port-mapping explanation in place before launching `/bin/sh`.
+Tux-Dock is a modern **C++17** Docker terminal frontend built with **FTXUI**.
+It gives you a guided, keyboard-first TUI for common Docker operations like pulling images, running containers, inspecting IPs, and managing images/containers without memorizing long CLI flags.
 
 ---
 
-## 🧩 Build Requirements
+## Features
 
-- **C++17 or newer** compiler
-  (e.g., `g++`, `clang++`)
+- Interactive Docker workflows through a single-screen TUI with modal steps.
+- Picker-based selection (arrow keys + Enter) for containers/images instead of numeric menus.
+- High-level status panel with responsive wait states for slower operations.
+- Rich container display with state and forwarded ports.
+- Interactive shell handoff with clean terminal clear before/after shell transitions.
+- Image operations: pull/list/delete with curated quick picks and custom image support.
+- Script-to-image workflow: generate Dockerfile from bash script, then optionally build.
+- MySQL quick start flow with version/password/port prompts.
+- About screen in-app with project/version/repository info.
+
+---
+
+## Build Requirements
+
+- **C++17 or newer** compiler (e.g. `g++`, `clang++`)
+- **CMake 3.16+**
 - **Docker Engine** installed and running
-  (tested on Debian 12/13, Alpine Linux, and Arch Linux)
 
 ---
 
-## ⚙️ Build & Run
+## Build & Run
 
 ```bash
 # Clone the repo
 git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git
 cd tuxdock
 
-# Build the binary
-g++ -std=c++17 main.cpp -o tux-dock
+# Configure & build (FTXUI is fetched automatically)
+cmake -S . -B build
+cmake --build build -j
 
 # Run it (requires Docker permissions)
-sudo ./tux-dock
-````
+sudo ./build/tux-dock
+```
 
-Prefer a prebuilt binary? The CI runner publishes build artifacts for the latest commits at:
+Prefer a prebuilt binary? CI artifacts are published at:
 https://mentalnet.xyz/forgejo/markmental/tuxdock/actions
 
 ---
 
-## 🖥️ Menu Overview
+## Menu Overview
 
-```
-Tux-Dock: Docker Management Menu
-----------------------------------
-1.  Pull Docker Image
-2.  Run/Create Interactive Container
-3.  List All Containers
-4.  List All Images
-5.  Start Container Interactively (boot new session)
-6.  Start Detached Container Session
-7.  Delete Docker Image
-8.  Stop Container
-9.  Remove Container
+Current TUI actions:
+
+1. Pull Docker Image
+2. Run/Create Interactive Container
+3. List All Containers
+4. List All Images
+5. Start Container Interactively (boot new session)
+6. Start Detached Container Session
+7. Delete Docker Image
+8. Stop Container
+9. Remove Container
 10. Attach Shell to Running Container
 11. Run Detached Command in Container
 12. Spin Up MySQL Container
 13. Get Container IP Address
 14. Create Dockerfile & Build Image from Bash Script
-15. Exit
-```
-
-Each action guides you through the required steps.
-For container-related commands, Tux-Dock automatically lists available containers and lets you choose by **number**, not by typing long IDs.
+15. About Tux-Dock
+16. Exit
 
 ---
 
-## 📡 Example: Getting a Container’s IP Address
+## Design Overview
 
-```
-Available Containers:
-1. mysql-container (ebaf5dbae393)
-2. webapp (fa29b6c1f1e8)
-
-Select container to view IP (1-2): 2
-Container IP Address: 172.17.0.3
-```
-
----
-
-## 🧱 Design Overview
-
-Tux-Dock is built using a single class:
+Tux-Dock is now structured around **two main classes**:
 
 ```cpp
 class DockerManager {
 public:
-    void pullImage();
-    void runContainerInteractive();
-    void listContainers() const;
-    void listImages() const;
-    void startInteractive();
-    void startDetached();
-    void deleteImage();
-    void stopContainer();
-    void removeContainer();
-    void execShell();
-    void execDetachedCommand();
-    void createDockerfile();
-    void spinUpMySQL();
-    void showContainerIP();
+  struct ContainerInfo {
+    std::string id;
+    std::string name;
+    std::string status;
+    std::string ports;
+    bool running;
+  };
+
+  // Docker command/data layer
+  std::vector<ContainerInfo> getContainerList() const;
+  std::vector<std::pair<std::string, std::string>> getImageList() const;
+  bool pullImage(...);
+  bool runContainerInteractive(...);
+  bool startInteractive(...);
+  bool startDetached(...);
+  bool stopContainer(...);
+  bool removeContainer(...);
+  bool deleteImage(...);
+  bool execShell(...);
+  bool execDetachedCommand(...);
+  bool spinUpMySQL(...);
+  bool showContainerIP(...);
+  bool createDockerfile(...);
+};
+
+class TuxDockApp {
+public:
+  void Run();
 
 private:
-    static void runCommand(const std::string& cmd);
-    std::vector<std::pair<std::string, std::string>> getContainerList() const;
-    std::string selectContainer(const std::string& prompt);
-    /* NEW helper – retrieves all images */
-    std::vector<std::pair<std::string, std::string>> getImageList() const;
+  // TUI orchestration layer
+  void OpenInput(...);
+  void OpenSelect(...);
+  void OpenConfirm(...);
+  void RunDeferredStatusAction(...);
+  void RunWithRestoredIO(...);
+  void ExecuteSelectedAction();
+  // action handlers bridge UI -> DockerManager
 };
 ```
 
-### Method Reference
-- `pullImage` — prompt for an image name and run `docker pull`.
-- `runContainerInteractive` — configure port mappings and start a new interactive container session.
-- `listContainers` — show all Docker containers (running or stopped).
-- `listImages` — list local Docker images.
-- `startInteractive` — start an existing container and attach a shell.
-- `startDetached` — start an existing container in detached mode.
-- `deleteImage` — remove a local Docker image.
-- `stopContainer` — stop a running container.
-- `removeContainer` — delete a container after confirmation.
-- `execShell` — attach a shell to a running container.
-- `execDetachedCommand` — run a background command inside a container.
-- `createDockerfile` — turn a bash script into a Dockerfile and build an image.
-- `spinUpMySQL` — launch a MySQL container with custom port, password, and version.
-- `showContainerIP` — display a container’s IP address.
-- `runCommand` — helper to invoke shell commands.
-- `getContainerList` — retrieve Docker container IDs and names for selection menus.
-- `getImageList` — gather local Docker image IDs and names for menus and reporting.
-- `selectContainer` — present a menu to pick a container interactively.
+### Responsibilities
 
-This makes the codebase **extensible** — adding new Docker features like `docker logs` or `docker stats` requires only a small new method.
+- `DockerManager`
+  - Executes Docker commands.
+  - Escapes shell arguments and returns success/failure + user-facing messages.
+  - Collects container/image data used by the UI.
+
+- `TuxDockApp`
+  - Renders the FTXUI interface.
+  - Manages modal flows (input/select/confirm/message).
+  - Handles status updates, deferred actions, and interactive shell transitions.
+  - Coordinates end-to-end user flows by calling `DockerManager` methods.
+
+This split keeps Docker behavior isolated while making UI behavior easier to extend.
 
 ---
 
-## 🧠 Why C++?
+## About / Version
 
-C++ was one of my formative languages when I was learning to program — it’s where I first grasped core concepts like memory management, data structures, OOP and abstraction.
-Writing Tux-Dock in C++ is both nostalgic and practical: it combines the clarity of modern design with the raw performance and control that first inspired me to code.
+- Version: `022526-dev`
+- Created by: `markmental`
+- GitHub: https://github.com/MARKMENTAL/tuxdock
+- Forgejo: https://mentalnet.xyz/forgejo/markmental/tuxdock
 
 ---
 
-## 📜 License
+## License
 
 MIT License — free to use, modify, and share.
-
----
-
-### 💡 Tip
-
-If you’d like Tux-Dock to run without `sudo`, add your user to the Docker group:
-
-```bash
-sudo usermod -aG docker $USER
-```
-
-Then log out and back in.
-
----
-
-**Author:** MARKMENTAL
-**Project:** Tux-Dock — *A clean and modern CLI for Docker power users.*
-
-
----

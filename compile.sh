@@ -1,3 +1,3 @@
 #!/bin/sh
 
-g++ -std=c++17 main.cpp -o tux-dock && echo "tux-dock successfully compiled!"
+cmake -S . -B build && cmake --build build -j && echo "tux-dock successfully compiled!"

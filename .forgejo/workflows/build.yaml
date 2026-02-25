@@ -8,11 +8,16 @@ on:
 
 jobs:
   build:
-    runs-on: [docker]
+    runs-on: [host-amd]
     env:
       BRANCH: ${{ github.ref_name }}
       COMMIT: ${{ github.sha }}
     steps:
+      - name: Install CMake
+        run: |
+          apt-get update && apt-get install -y cmake
+          echo "✅ CMake build tool installed."
+
       - name: Clone current branch
         run: |
           git clone --branch "$BRANCH" https://mentalnet.xyz/forgejo/markmental/tuxdock.git .
@@ -20,7 +25,9 @@ jobs:
 
       - name: Compile tux-dock
         run: |
-          g++ -std=c++17 main.cpp -o tux-dock
+          cmake -S . -B build
+          cmake --build build -j
+          cp build/tux-dock ./tux-dock
           chmod +x tux-dock
           echo "🎉 tux-dock compiled and marked executable!"
 
@@ -41,5 +48,4 @@ jobs:
         with:
           name: tux-dock-linux-x86_64-${{ env.BRANCH }}-${{ env.COMMIT }}
           path: tux-dock-linux-x86_64-${{ env.BRANCH }}-*.tar.gz
-
 
