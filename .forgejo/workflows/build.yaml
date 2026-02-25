@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Install CMake
         run: |
-          apt-get update && apt-get install cmake
+          apt-get update && apt-get install -y cmake
           echo "✅ CMake build tool installed."
 
       - name: Clone current branch
