@@ -24,6 +24,7 @@ It offers a clean, interactive menu for common Docker operations like pulling im
 
 - **C++17 or newer** compiler
   (e.g., `g++`, `clang++`)
+- **CMake 3.16+**
 - **Docker Engine** installed and running
   (tested on Debian 12/13, Alpine Linux, and Arch Linux)
 
@@ -36,12 +37,13 @@ It offers a clean, interactive menu for common Docker operations like pulling im
 git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git
 cd tuxdock
 
-# Build the binary
-g++ -std=c++17 main.cpp -o tux-dock
+# Configure & build (FTXUI is fetched automatically)
+cmake -S . -B build
+cmake --build build -j
 
 # Run it (requires Docker permissions)
-sudo ./tux-dock
-````
+sudo ./build/tux-dock
+```
 
 Prefer a prebuilt binary? The CI runner publishes build artifacts for the latest commits at:
 https://mentalnet.xyz/forgejo/markmental/tuxdock/actions

@@ -20,7 +20,9 @@ jobs:
 
       - name: Compile tux-dock
         run: |
-          g++ -std=c++17 main.cpp -o tux-dock
+          cmake -S . -B build
+          cmake --build build -j
+          cp build/tux-dock ./tux-dock
           chmod +x tux-dock
           echo "🎉 tux-dock compiled and marked executable!"
 
@@ -41,5 +43,4 @@ jobs:
         with:
           name: tux-dock-linux-x86_64-${{ env.BRANCH }}-${{ env.COMMIT }}
           path: tux-dock-linux-x86_64-${{ env.BRANCH }}-*.tar.gz
-
 
