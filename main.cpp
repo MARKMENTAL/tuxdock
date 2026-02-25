@@ -9,6 +9,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -358,6 +359,7 @@ private:
         "Spin Up MySQL Container",
         "Get Container IP Address",
         "Create Dockerfile & Build Image from Bash Script",
+        "About Tux-Dock",
         "Exit",
     };
 
@@ -419,6 +421,7 @@ private:
     void ActionSpinUpMySQL();
     void ActionShowContainerIP();
     void ActionCreateDockerfile();
+    void ActionAbout();
     void PromptPortCountAndRun(const std::shared_ptr<RunContainerContext>& context);
     void PromptNextPort(const std::shared_ptr<RunContainerContext>& context, int index);
 
@@ -426,6 +429,8 @@ private:
                                   std::function<void(const std::string& id, const std::string& name)> callback);
     void PromptImageSelection(const std::string& title,
                               std::function<void(const std::string& id, const std::string& tag)> callback);
+    void RunDeferredStatusAction(const std::string& wait_message,
+                                 std::function<std::string()> action);
     static void ClearTerminal();
     void RunWithRestoredIO(const std::function<void()>& action,
                            bool clear_before = false,
@@ -684,6 +689,28 @@ void TuxDockApp::RunWithRestoredIO(const std::function<void()>& action,
     }
 }
 
+void TuxDockApp::RunDeferredStatusAction(const std::string& wait_message,
+                                         std::function<std::string()> action) {
+    SetStatus(wait_message);
+
+    if (screen_ == nullptr) {
+        SetStatus(action());
+        return;
+    }
+
+    ftxui::ScreenInteractive* active_screen = screen_;
+    active_screen->PostEvent(ftxui::Event::Custom);
+
+    std::thread([this, active_screen, action = std::move(action)]() mutable {
+        const std::string final_message = action();
+        if (ftxui::ScreenInteractive::Active() != active_screen) {
+            return;
+        }
+        active_screen->Post([this, final_message] { SetStatus(final_message); });
+        active_screen->PostEvent(ftxui::Event::Custom);
+    }).detach();
+}
+
 void TuxDockApp::ActionPullImage() {
     const std::vector<std::string> quick_images = {
         "debian:stable",
@@ -710,12 +737,12 @@ void TuxDockApp::ActionPullImage() {
                    }
 
                    if (selected < static_cast<int>(quick_images.size())) {
-                       std::string message;
-                       SetStatus("Pulling image...");
-                       RunWithRestoredIO([this, &message, &quick_images, selected] {
-                           docker_.pullImage(quick_images[static_cast<std::size_t>(selected)], message);
+                       const std::string image = quick_images[static_cast<std::size_t>(selected)];
+                       RunDeferredStatusAction("Please wait, pulling image...", [this, image] {
+                           std::string message;
+                           docker_.pullImage(image, message);
+                           return message;
                        });
-                       SetStatus(message);
                        return;
                    }
 
@@ -731,10 +758,11 @@ void TuxDockApp::ActionPullImage() {
                                      ActionPullImage();
                                      return;
                                  }
-                                 std::string message;
-                                 SetStatus("Pulling image...");
-                                 RunWithRestoredIO([this, &message, &image] { docker_.pullImage(image, message); });
-                                 SetStatus(message);
+                                 RunDeferredStatusAction("Please wait, pulling image...", [this, image] {
+                                     std::string message;
+                                     docker_.pullImage(image, message);
+                                     return message;
+                                 });
                              });
                });
 }
@@ -889,20 +917,22 @@ void TuxDockApp::ActionDeleteImage() {
                             SetStatus("Image deletion cancelled.");
                             return;
                         }
-                        std::string message;
-                        SetStatus("Deleting image...");
-                        RunWithRestoredIO([this, &id, &message] { docker_.deleteImage(id, message); });
-                        SetStatus(message);
+                        RunDeferredStatusAction("Please wait, deleting image...", [this, id] {
+                            std::string message;
+                            docker_.deleteImage(id, message);
+                            return message;
+                        });
                     });
     });
 }
 
 void TuxDockApp::ActionStopContainer() {
     PromptContainerSelection("Stop Container", [this](const std::string& id, const std::string&) {
-        std::string message;
-        SetStatus("Stopping container...");
-        RunWithRestoredIO([this, &id, &message] { docker_.stopContainer(id, message); });
-        SetStatus(message);
+        RunDeferredStatusAction("Please wait, stopping container...", [this, id] {
+            std::string message;
+            docker_.stopContainer(id, message);
+            return message;
+        });
     });
 }
 
@@ -915,10 +945,11 @@ void TuxDockApp::ActionRemoveContainer() {
                             SetStatus("Container removal cancelled.");
                             return;
                         }
-                        std::string message;
-                        SetStatus("Removing container...");
-                        RunWithRestoredIO([this, &id, &message] { docker_.removeContainer(id, message); });
-                        SetStatus(message);
+                        RunDeferredStatusAction("Please wait, removing container...", [this, id] {
+                            std::string message;
+                            docker_.removeContainer(id, message);
+                            return message;
+                        });
                     });
     });
 }
@@ -1082,6 +1113,15 @@ void TuxDockApp::ActionCreateDockerfile() {
               });
 }
 
+void TuxDockApp::ActionAbout() {
+    SetStatus("Tux-Dock 022526-dev\n"
+              "Created by markmental\n\n"
+              "GitHub:\n"
+              "https://github.com/MARKMENTAL/tuxdock\n\n"
+              "Forgejo:\n"
+              "https://mentalnet.xyz/forgejo/markmental/tuxdock");
+}
+
 void TuxDockApp::ExecuteSelectedAction() {
     switch (menu_selected_) {
         case 0:
@@ -1127,6 +1167,9 @@ void TuxDockApp::ExecuteSelectedAction() {
             ActionCreateDockerfile();
             break;
         case 14:
+            ActionAbout();
+            break;
+        case 15:
             SetStatus("Exiting Tux-Dock.");
             if (screen_ != nullptr) {
                 screen_->ExitLoopClosure()();
@@ -1220,13 +1263,26 @@ ftxui::Element TuxDockApp::RenderModal() const {
 ftxui::Element TuxDockApp::Render() const {
     using namespace ftxui;
 
+    Elements status_lines;
+    {
+        std::stringstream ss(status_);
+        std::string line;
+        while (std::getline(ss, line)) {
+            status_lines.push_back(line.empty() ? text(" ") : text(line));
+        }
+        if (status_lines.empty()) {
+            status_lines.push_back(text(" "));
+        }
+    }
+
     auto actions_panel = window(text("Actions"),
                                 vbox(ftxui::Elements{menu_component_->Render() | frame | vscroll_indicator,
                                                      separator(),
                                                      text("Up/Down: navigate   Enter: select") | dim})) |
                          size(WIDTH, GREATER_THAN, 48) | flex;
 
-    auto status_panel = window(text("Status"), vbox(ftxui::Elements{paragraph(status_) | yflex, separator(),
+    auto status_panel = window(text("Status"), vbox(ftxui::Elements{vbox(std::move(status_lines)) | yflex | frame | vscroll_indicator,
+                                                                     separator(),
                                                                      text("High-level updates only") | dim})) |
                         size(WIDTH, GREATER_THAN, 48) | flex;
 
