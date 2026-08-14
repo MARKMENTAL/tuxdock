@@ -53,8 +53,8 @@ if [ "$run_tests" -eq 1 ]; then
         report="$report_dir/report.html"
         escaped_output=$(mktemp "$report_dir/output.XXXXXX")
         sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' "$test_output" >"$escaped_output"
-        total=$(awk '/tests passed, [0-9]+ tests failed out of [0-9]+/ { print $(NF); exit }' "$test_output" 2>/dev/null || true)
-        failed=$(awk '/tests passed, [0-9]+ tests failed out of [0-9]+/ { print $4; exit }' "$test_output" 2>/dev/null || true)
+        total=$(awk '/tests passed, .* tests failed out of / { print $(NF); exit }' "$test_output" 2>/dev/null || true)
+        failed=$(awk '/tests passed, .* tests failed out of / { print $4; exit }' "$test_output" 2>/dev/null || true)
         total=${total:-unknown}
         passed=${passed:-0}
         failed=${failed:-0}
@@ -66,8 +66,27 @@ if [ "$run_tests" -eq 1 ]; then
         command_line='ctest --test-dir build --output-on-failure'
         test_rows=$(mktemp "$report_dir/test-rows.XXXXXX")
         awk '
-            match($0, /^[[:space:]]*([0-9]+)\/([0-9]+) Test #[0-9]+: ([^ ]+)[[:space:]]+\.+[[:space:]]+(Passed|Failed|Skipped)[[:space:]]+([0-9.]+) sec/, m) {
-                printf "<TR><TD>%s</TD><TD>%s</TD><TD>%s</TD><TD>%s sec</TD></TR>\n", m[1], m[3], m[4], m[5]
+            /^[[:space:]]*[0-9]+\/[0-9]+ Test #[0-9]+:/ {
+                test_number = $1
+                sub(/\//, "", test_number)
+                test_name = $3
+                sub(/^#[0-9]+:/, "", test_name)
+                status_field = 0
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "Passed" || $i == "Failed" || $i == "Skipped") {
+                        status_field = i
+                        break
+                    }
+                }
+                if (status_field > 4) {
+                    for (i = 4; i < status_field; i++) {
+                        if ($i !~ /^\.*$/) test_name = test_name " " $i
+                    }
+                    sub(/^[[:space:]]+/, "", test_name)
+                    status = $(status_field)
+                    seconds = $(status_field + 1)
+                    printf "<TR><TD>%s</TD><TD>%s</TD><TD>%s</TD><TD>%s sec</TD></TR>\n", test_number, test_name, status, seconds
+                }
             }
         ' "$test_output" >"$test_rows"
         integration_output=$(mktemp "$report_dir/integration-output.XXXXXX")
@@ -136,11 +155,18 @@ if [ "$run_tests" -eq 1 ]; then
             exit "$test_status"
         fi
 
+        if "$nc_command" -h 2>&1 | grep -q -- '-N'; then
+            nc_args='-l -N -s 0.0.0.0 -p'
+        else
+            nc_args='-l -s 0.0.0.0 -p'
+        fi
+
         printf '%s\n' "Test report: http://0.0.0.0:$web_port/"
         printf '%s\n' "Report file: $report"
         printf '%s\n' "Press Ctrl-C to stop the server."
         while :; do
-            "$nc_command" -l -N -s 0.0.0.0 -p "$web_port" <"$response"
+            # shellcheck disable=SC2086
+            "$nc_command" $nc_args "$web_port" <"$response"
         done
     fi
     exit "$test_status"
