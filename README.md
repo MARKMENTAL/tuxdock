@@ -47,10 +47,15 @@ sudo ./build/tux-dock
 
 # Build without running tests
 ./compile.sh --no-test
+
+# Run tests and serve an HTML 3.2 report on port 8095
+./compile.sh --web-test-view
+
+# Override the report server port
+./compile.sh --web-test-view 9000
 ```
 
-Prefer a prebuilt binary? CI artifacts are published at:
-https://mentalnet.xyz/forgejo/markmental/tuxdock/actions
+The web report is generated under `/tmp` and includes exact CTest output, test summaries, Docker integration output, and a text rendition of the TUI flow. It requires `nc` or `netcat`; press `Ctrl-C` to stop the server. The default port is `8095`; pass a port after `--web-test-view` to override it. `--web-test-view --no-test` is invalid. Normal test runs include a Docker integration test using `debian:forky`, so Docker must be available.
 
 ---
 
@@ -161,7 +166,7 @@ ctest --test-dir build --output-on-failure
 - Version: `0.1-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
-- Forgejo: https://mentalnet.xyz/forgejo/markmental/tuxdock
+- Forgejo: https://mentalnet.xyz/forgejo-v2/markmental/tuxdock
 
 ---
 

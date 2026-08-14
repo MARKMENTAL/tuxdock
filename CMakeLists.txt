@@ -92,4 +92,7 @@ if(BUILD_TESTING)
   target_include_directories(tux-dock-stop-sequence-tests PRIVATE src)
   target_compile_options(tux-dock-stop-sequence-tests PRIVATE -Wall -Wextra -Wpedantic)
   add_test(NAME tux-dock-stop-sequence-tests COMMAND tux-dock-stop-sequence-tests)
+
+  add_test(NAME tux-dock-docker-integration-tests
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_docker_integration.sh)
 endif()
