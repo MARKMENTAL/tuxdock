@@ -64,10 +64,9 @@ Current TUI actions:
 10. Attach Shell to Running Container
 11. Run Detached Command in Container
 12. Spin Up MySQL Container
-13. Get Container IP Address
-14. Create Dockerfile & Build Image from Bash Script
-15. About Tux-Dock
-16. Exit
+13. Create Dockerfile & Build Image from Bash Script
+14. About Tux-Dock
+15. Exit
 
 ---
 
@@ -99,7 +98,6 @@ public:
   bool execShell(...);
   bool execDetachedCommand(...);
   bool spinUpMySQL(...);
-  bool showContainerIP(...);
   bool createDockerfile(...);
 };
 
