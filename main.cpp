@@ -18,7 +18,7 @@
 
 class TuxDockApp {
 public:
-    void Run();
+    int Run();
 
 private:
     enum class ModalMode { None, Input, Confirm, Select, Message };
@@ -69,6 +69,8 @@ private:
     void PromptImageSelection(const std::string&, std::function<void(const std::string&, const std::string&)>);
     void RunDeferredStatusAction(const std::string&, std::function<std::string()>);
     void RefreshState(const std::string& message = "Refreshing Docker state...");
+    void ApplyRefreshResults(DockerManager::ListResult<DockerManager::ContainerInfo> containers,
+                             DockerManager::ListResult<DockerManager::ImageInfo> images);
     static void ClearTerminal();
     void RunWithRestoredIO(const std::function<void()>&, bool clear_before = false, bool clear_after = false);
     bool OnEvent(ftxui::Event); ftxui::Element Render() const; ftxui::Element RenderModal() const;
@@ -114,9 +116,29 @@ void TuxDockApp::RefreshState(const std::string& message) {
         auto containers = docker_.getContainerList();
         auto images = docker_.getImageList();
         if (active == nullptr || ftxui::ScreenInteractive::Active() != active) return;
-        active->Post([this, containers = std::move(containers), images = std::move(images)]() mutable { containers_ = std::move(containers); images_ = std::move(images); SetStatus("Docker state refreshed."); });
+        active->Post([this, containers = std::move(containers), images = std::move(images)]() mutable {
+            ApplyRefreshResults(std::move(containers), std::move(images));
+        });
         active->PostEvent(ftxui::Event::Custom);
     });
+}
+
+void TuxDockApp::ApplyRefreshResults(
+    DockerManager::ListResult<DockerManager::ContainerInfo> containers,
+    DockerManager::ListResult<DockerManager::ImageInfo> images) {
+    std::string error;
+    if (containers.ok()) {
+        containers_ = std::move(containers.items);
+    } else {
+        error = "Containers: " + containers.error;
+    }
+    if (images.ok()) {
+        images_ = std::move(images.items);
+    } else {
+        if (!error.empty()) error += "\n";
+        error += "Images: " + images.error;
+    }
+    SetStatus(error.empty() ? "Docker state refreshed." : "Refresh failed; cached state preserved.\n" + error);
 }
 
 void TuxDockApp::OpenInput(const std::string& title, const std::string& text, std::function<void(bool, const std::string&)> callback, bool secret) { modal_mode_ = ModalMode::Input; modal_title_ = title; modal_text_ = text; modal_input_.clear(); ftxui::InputOption option; option.password = secret; input_component_ = ftxui::Input(&modal_input_, "Type here", option); input_callback_ = std::move(callback); }
@@ -221,8 +243,28 @@ ftxui::Element TuxDockApp::RenderModal() const {
            size(HEIGHT, LESS_THAN, 24) | size(HEIGHT, GREATER_THAN, 10) | center;
 }
 ftxui::Element TuxDockApp::Render() const { using namespace ftxui; Elements lines; std::stringstream s(status_); std::string line; while (std::getline(s, line)) lines.push_back(line.empty() ? text(" ") : text(line)); auto base = hbox(Elements{window(text("Actions"), vbox(Elements{menu_component_->Render() | frame | vscroll_indicator, separator(), text("Up/Down: navigate   Enter: select") | dim})) | size(WIDTH, GREATER_THAN, 48) | flex, separator(), window(text("Status"), vbox(Elements{vbox(std::move(lines)) | yflex | frame | vscroll_indicator, separator(), text("Engine API cache") | dim})) | size(WIDTH, GREATER_THAN, 48) | flex}) | border; return modal_mode_ == ModalMode::None ? base : dbox({base, RenderModal() | clear_under | center}); }
-void TuxDockApp::Run() {
-    RefreshState("Connecting to Docker...");
+int TuxDockApp::Run() {
+    std::string connection_error;
+    if (!docker_.checkConnection(connection_error)) {
+        std::cerr << "Unable to connect to Docker Engine.\n"
+                  << "Socket: /var/run/docker.sock\n"
+                  << "Reason: " << connection_error << "\n\n"
+                  << "Ensure Docker is running and your user can access the Docker socket.\n";
+        return 1;
+    }
+
+    const auto initial_containers = docker_.getContainerList();
+    const auto initial_images = docker_.getImageList();
+    if (initial_containers.ok()) containers_ = initial_containers.items;
+    if (initial_images.ok()) images_ = initial_images.items;
+    if (!initial_containers.ok() || !initial_images.ok()) {
+        SetStatus("Docker connected, but initial state could not be fully loaded.");
+    } else if (containers_.empty() && images_.empty()) {
+        SetStatus("Docker connected. No containers or images found.");
+    } else {
+        SetStatus("Docker connected. State loaded.");
+    }
+
     auto root = ftxui::Renderer(menu_component_, [this] { return Render(); });
     auto app = ftxui::CatchEvent(root, [this](ftxui::Event e) { return OnEvent(e); });
     auto screen = ftxui::ScreenInteractive::TerminalOutput();
@@ -231,5 +273,6 @@ void TuxDockApp::Run() {
     screen_ = nullptr;
     if (refresh_thread_.joinable()) refresh_thread_.join();
     for (auto& thread : action_threads_) if (thread.joinable()) thread.join();
+    return 0;
 }
-int main() { TuxDockApp app; app.Run(); return 0; }
+int main() { TuxDockApp app; return app.Run(); }

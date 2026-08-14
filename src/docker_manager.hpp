@@ -18,8 +18,18 @@ public:
 
     using ImageInfo = std::pair<std::string, std::string>;
 
-    std::vector<ContainerInfo> getContainerList() const;
-    std::vector<ImageInfo> getImageList() const;
+    template <typename T>
+    struct ListResult {
+        std::vector<T> items;
+        std::string error;
+
+        bool ok() const { return error.empty(); }
+    };
+
+    bool checkConnection(std::string& error) const;
+
+    ListResult<ContainerInfo> getContainerList() const;
+    ListResult<ImageInfo> getImageList() const;
 
     bool pullImage(const std::string& image, std::string& message) const;
     bool runContainerInteractive(const std::string& image,

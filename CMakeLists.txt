@@ -33,6 +33,8 @@ add_executable(tux-dock
   main.cpp
   src/process_runner.cpp
   src/docker_engine_client.cpp
+  src/http_response_parser.cpp
+  src/container_parser.cpp
   src/docker_manager.cpp
 )
 
@@ -45,3 +47,23 @@ target_link_libraries(tux-dock
 )
 
 target_compile_options(tux-dock PRIVATE -Wall -Wextra -Wpedantic)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(tux-dock-http-tests
+    tests/test_http_response_parser.cpp
+    src/http_response_parser.cpp
+  )
+  target_include_directories(tux-dock-http-tests PRIVATE src)
+  target_compile_options(tux-dock-http-tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tux-dock-http-tests COMMAND tux-dock-http-tests)
+
+  add_executable(tux-dock-container-tests
+    tests/test_container_parser.cpp
+    src/container_parser.cpp
+  )
+  target_include_directories(tux-dock-container-tests PRIVATE src)
+  target_link_libraries(tux-dock-container-tests PRIVATE nlohmann_json::nlohmann_json)
+  target_compile_options(tux-dock-container-tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tux-dock-container-tests COMMAND tux-dock-container-tests)
+endif()

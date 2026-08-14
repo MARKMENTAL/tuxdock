@@ -1,6 +1,7 @@
 #include "docker_manager.hpp"
 
 #include "process_runner.hpp"
+#include "container_parser.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -11,20 +12,6 @@
 using json = nlohmann::json;
 
 namespace {
-
-std::string joinPorts(const json& ports) {
-    std::ostringstream result;
-    bool first = true;
-    for (const auto& port : ports) {
-        const auto public_port = port.value("PublicPort", 0);
-        const auto private_port = port.value("PrivatePort", 0);
-        if (public_port == 0 || private_port == 0) continue;
-        if (!first) result << ", ";
-        result << public_port << ":" << private_port;
-        first = false;
-    }
-    return result.str();
-}
 
 std::string apiError(const EngineResponse& response, const std::string& fallback) {
     if (!response.error.empty()) return response.error;
@@ -53,47 +40,42 @@ bool DockerManager::runProcess(const std::vector<std::string>& args,
     return true;
 }
 
-std::vector<DockerManager::ContainerInfo> DockerManager::getContainerList() const {
-    std::vector<ContainerInfo> containers;
-    const EngineResponse response = engine_.request("GET", "/containers/json?all=true");
-    if (!response.ok()) return containers;
-
-    try {
-        for (const auto& item : json::parse(response.body)) {
-            ContainerInfo info;
-            info.id = item.value("Id", "");
-            info.name = item.value("Names", std::vector<std::string>{}).empty()
-                            ? ""
-                            : item.value("Names", std::vector<std::string>{}).front();
-            if (!info.name.empty() && info.name.front() == '/') info.name.erase(0, 1);
-            info.status = item.value("Status", "");
-            info.running = item.value("State", "") == "running";
-            info.ports = joinPorts(item.value("Ports", json::array()));
-            if (!info.id.empty() && !info.name.empty()) containers.push_back(std::move(info));
-        }
-    } catch (const json::exception&) {
-        return {};
-    }
-    return containers;
+bool DockerManager::checkConnection(std::string& error) const {
+    return engine_.checkConnection(error);
 }
 
-std::vector<DockerManager::ImageInfo> DockerManager::getImageList() const {
-    std::vector<ImageInfo> images;
+DockerManager::ListResult<DockerManager::ContainerInfo> DockerManager::getContainerList() const {
+    ListResult<ContainerInfo> result;
+    const EngineResponse response = engine_.request("GET", "/containers/json?all=true");
+    if (!response.ok()) {
+        result.error = apiError(response, "Could not list containers.");
+        return result;
+    }
+
+    return parseContainerList(response.body);
+}
+
+DockerManager::ListResult<DockerManager::ImageInfo> DockerManager::getImageList() const {
+    ListResult<ImageInfo> result;
     const EngineResponse response = engine_.request("GET", "/images/json");
-    if (!response.ok()) return images;
+    if (!response.ok()) {
+        result.error = apiError(response, "Could not list images.");
+        return result;
+    }
 
     try {
         for (const auto& item : json::parse(response.body)) {
             const std::string id = item.value("Id", "");
             const auto tags = item.value("RepoTags", std::vector<std::string>{});
             if (id.empty()) continue;
-            if (tags.empty()) images.emplace_back(id, "<untagged>");
-            else for (const auto& tag : tags) images.emplace_back(id, tag);
+            if (tags.empty()) result.items.emplace_back(id, "<untagged>");
+            else for (const auto& tag : tags) result.items.emplace_back(id, tag);
         }
-    } catch (const json::exception&) {
-        return {};
+    } catch (const json::exception& error) {
+        result.items.clear();
+        result.error = std::string("Could not parse image data: ") + error.what();
     }
-    return images;
+    return result;
 }
 
 bool DockerManager::pullImage(const std::string& image, std::string& message) const {

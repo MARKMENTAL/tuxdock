@@ -14,6 +14,8 @@ class DockerEngineClient {
 public:
     explicit DockerEngineClient(std::string socket_path = "/var/run/docker.sock");
 
+    bool checkConnection(std::string& error) const;
+
     EngineResponse request(const std::string& method,
                            const std::string& path,
                            const std::string& body = {}) const;

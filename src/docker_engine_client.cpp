@@ -1,5 +1,7 @@
 #include "docker_engine_client.hpp"
 
+#include "http_response_parser.hpp"
+
 #include <cerrno>
 #include <cstring>
 #include <sys/socket.h>
@@ -11,6 +13,23 @@
 
 DockerEngineClient::DockerEngineClient(std::string socket_path)
     : socket_path_(std::move(socket_path)) {}
+
+bool DockerEngineClient::checkConnection(std::string& error) const {
+    const EngineResponse response = request("GET", "/_ping");
+    if (!response.error.empty()) {
+        error = response.error;
+        return false;
+    }
+    if (response.status_code < 200 || response.status_code >= 300) {
+        error = "Docker Engine returned HTTP status " + std::to_string(response.status_code) + ".";
+        return false;
+    }
+    if (response.body != "OK" && response.body != "OK\n" && response.body != "OK\r\n") {
+        error = "Docker Engine returned an unexpected /_ping response.";
+        return false;
+    }
+    return true;
+}
 
 EngineResponse DockerEngineClient::request(const std::string& method,
                                            const std::string& path,
@@ -72,22 +91,9 @@ EngineResponse DockerEngineClient::request(const std::string& method,
         return response;
     }
 
-    const std::size_t header_end = raw.find("\r\n\r\n");
-    if (header_end == std::string::npos) {
-        response.error = "Invalid response from Docker Engine.";
-        return response;
-    }
-    const std::size_t status_end = raw.find("\r\n");
-    std::istringstream status_line(raw.substr(0, status_end));
-    std::string http_version;
-    status_line >> http_version >> response.status_code;
-    if (response.status_code == 0) {
-        response.error = "Invalid HTTP status from Docker Engine.";
-        return response;
-    }
-    response.body = raw.substr(header_end + 4);
-    if (!response.ok()) {
-        response.error = response.body.empty() ? "Docker Engine request failed." : response.body;
-    }
+    const auto parsed = parseHttpResponse(raw);
+    response.status_code = parsed.status_code;
+    response.body = parsed.body;
+    response.error = parsed.error;
     return response;
 }
