@@ -60,14 +60,14 @@ EngineResponse DockerEngineClient::request(const std::string& method,
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    std::ostringstream request;
-    request << method << " " << path << " HTTP/1.1\r\n"
+    std::ostringstream wire_request;
+    wire_request << method << " " << path << " HTTP/1.1\r\n"
             << "Host: docker\r\n"
             << "Connection: close\r\n"
             << "Content-Type: application/json\r\n"
             << "Content-Length: " << body.size() << "\r\n\r\n"
             << body;
-    const std::string wire = request.str();
+    const std::string wire = wire_request.str();
     std::size_t sent = 0;
     while (sent < wire.size()) {
         const ssize_t count = write(fd, wire.data() + sent, wire.size() - sent);
@@ -82,18 +82,26 @@ EngineResponse DockerEngineClient::request(const std::string& method,
     std::string raw;
     char buffer[8192];
     ssize_t count = 0;
-    while ((count = read(fd, buffer, sizeof(buffer))) > 0) {
+    while (!httpResponseComplete(raw, method) && (count = read(fd, buffer, sizeof(buffer))) > 0) {
         raw.append(buffer, static_cast<std::size_t>(count));
     }
     close(fd);
     if (count < 0) {
-        response.error = std::strerror(errno);
-        return response;
+        if (errno == EINTR) return request(method, path, body);
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            response.error = std::strerror(errno);
+            return response;
+        }
+        if (!httpResponseComplete(raw, method)) {
+            response.error = "Docker Engine response timed out.";
+            return response;
+        }
     }
 
     const auto parsed = parseHttpResponse(raw);
     response.status_code = parsed.status_code;
     response.body = parsed.body;
     response.error = parsed.error;
+    if (response.status_code == 304 && response.error.empty()) response.error.clear();
     return response;
 }

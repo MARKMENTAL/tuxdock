@@ -70,6 +70,9 @@ ParsedHttpResponse parseHttpResponse(const std::string& raw) {
         return response;
     }
 
+    const bool bodyless = (response.status_code >= 100 && response.status_code < 200) ||
+                          response.status_code == 204 || response.status_code == 304;
+
     std::size_t content_length = std::string::npos;
     bool chunked = false;
     std::size_t line_start = status_end + 2;
@@ -90,7 +93,9 @@ ParsedHttpResponse parseHttpResponse(const std::string& raw) {
     }
 
     const std::string payload = raw.substr(header_end + 4);
-    if (chunked) {
+    if (bodyless) {
+        response.body.clear();
+    } else if (chunked) {
         if (!decodeChunked(payload, response.body, response.error)) return response;
     } else if (content_length != std::string::npos) {
         if (payload.size() < content_length) {
@@ -102,7 +107,36 @@ ParsedHttpResponse parseHttpResponse(const std::string& raw) {
         response.body = payload;
     }
     if (response.status_code < 200 || response.status_code >= 300) {
+        if (response.status_code == 304) return response;
         response.error = response.body.empty() ? "Docker Engine request failed." : response.body;
     }
     return response;
+}
+
+bool httpResponseComplete(const std::string& raw, const std::string& method) {
+    const auto header_end = raw.find("\r\n\r\n");
+    if (header_end == std::string::npos) return false;
+    const auto status_end = raw.find("\r\n");
+    if (status_end == std::string::npos || status_end > header_end) return false;
+    std::istringstream status_line(raw.substr(0, status_end));
+    std::string version;
+    int status_code = 0;
+    status_line >> version >> status_code;
+    if (method == "HEAD" || (status_code >= 100 && status_code < 200) || status_code == 204 || status_code == 304) return true;
+    const std::string headers = raw.substr(status_end + 2, header_end - status_end - 2);
+    const auto transfer = headers.find("Transfer-Encoding:");
+    if (transfer != std::string::npos && lower(headers.substr(transfer)).find("chunked") != std::string::npos) {
+        return raw.size() >= header_end + 7 && raw.find("\r\n0\r\n", header_end + 4) != std::string::npos;
+    }
+    const auto length = lower(headers).find("content-length:");
+    if (length == std::string::npos) return false;
+    const auto line_end = headers.find("\r\n", length);
+    const auto value_start = headers.find(':', length);
+    if (value_start == std::string::npos) return false;
+    try {
+        const auto expected = std::stoull(trim(headers.substr(value_start + 1, line_end - value_start - 1)));
+        return raw.size() >= header_end + 4 + expected;
+    } catch (...) {
+        return false;
+    }
 }

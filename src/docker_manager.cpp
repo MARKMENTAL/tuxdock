@@ -2,6 +2,7 @@
 
 #include "process_runner.hpp"
 #include "container_parser.hpp"
+#include "stop_waiter.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -133,9 +134,43 @@ bool DockerManager::deleteImage(const std::string& id, std::string& message) con
 }
 
 bool DockerManager::stopContainer(const std::string& id, std::string& message) const {
-    const EngineResponse response = engine_.request("POST", "/containers/" + id + "/stop");
-    if (!response.ok()) {
-        message = apiError(response, "Could not stop that container.");
+    const auto stop_request = [this, &id] { return engine_.request("POST", "/containers/" + id + "/stop"); };
+    const auto acceptable = [](const EngineResponse& response) {
+        return response.status_code == 204 || response.status_code == 304 || response.status_code == 404 || response.ok();
+    };
+    const auto probe = [this, &id] {
+        const EngineResponse state = engine_.request("GET", "/containers/" + id + "/json");
+        if (!state.ok()) return StopProbe::Unknown;
+        try {
+            const bool running = nlohmann::json::parse(state.body)
+                                     .value("State", nlohmann::json::object())
+                                     .value("Running", true);
+            return running ? StopProbe::Running : StopProbe::Stopped;
+        } catch (const nlohmann::json::exception&) {
+            return StopProbe::Unknown;
+        }
+    };
+
+    const EngineResponse first = stop_request();
+    const bool first_timed_out = first.error == "Docker Engine response timed out.";
+    if (!acceptable(first) && !first_timed_out) {
+        message = apiError(first, "Could not stop that container.");
+        return false;
+    }
+
+    StopProbe state = first_timed_out ? StopProbe::Unknown : waitForStopped(probe);
+    if (state != StopProbe::Stopped) {
+        const EngineResponse retry = stop_request();
+        const bool retry_timed_out = retry.error == "Docker Engine response timed out.";
+        if (!acceptable(retry) && !retry_timed_out) {
+            message = apiError(retry, "Could not confirm that container stopped.");
+            return false;
+        }
+        state = waitForStopped(probe);
+    }
+
+    if (state != StopProbe::Stopped) {
+        message = "Stop requested, but container state could not be confirmed.";
         return false;
     }
     message = "Container stopped.";

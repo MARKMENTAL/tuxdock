@@ -34,10 +34,32 @@ void testErrorResponse() {
     assert(response.error == "bad");
 }
 
+void testCompleteResponseDoesNotNeedPeerClose() {
+    const std::string raw = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+    assert(httpResponseComplete(raw));
+    const auto response = parseHttpResponse(raw);
+    assert(response.ok());
+    assert(response.status_code == 204);
+}
+
+void testBodylessStatuses() {
+    for (const int status : {204, 304}) {
+        const std::string raw = "HTTP/1.1 " + std::to_string(status) + " Status\r\n\r\n";
+        assert(httpResponseComplete(raw));
+        const auto parsed = parseHttpResponse(raw);
+        if (!parsed.ok()) std::cerr << "status=" << status << " error=" << parsed.error << "\n";
+        assert(parsed.ok());
+    }
+    const std::string head = "HTTP/1.1 200 OK\r\n\r\n";
+    assert(httpResponseComplete(head, "HEAD"));
+}
+
 int main() {
     testContentLength();
     testChunked();
     testTruncatedBody();
     testErrorResponse();
+    testCompleteResponseDoesNotNeedPeerClose();
+    testBodylessStatuses();
     std::cout << "HTTP response parser tests passed\n";
 }

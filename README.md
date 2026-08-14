@@ -2,7 +2,7 @@
 ### A lightweight C++ Docker TUI
 
 Tux-Dock is a modern **C++17** Docker terminal frontend built with **FTXUI**.
-It gives you a guided, keyboard-first TUI for common Docker operations like pulling images, running containers, inspecting IPs, and managing images/containers without memorizing long CLI flags.
+It gives you a guided, keyboard-first TUI for common Docker operations without memorizing long CLI flags.
 
 ---
 
@@ -10,12 +10,16 @@ It gives you a guided, keyboard-first TUI for common Docker operations like pull
 
 - Interactive Docker workflows through a single-screen TUI with modal steps.
 - Picker-based selection (arrow keys + Enter) for containers/images instead of numeric menus.
-- High-level status panel with responsive wait states for slower operations.
+- Busy-operation modals with a spinner and input blocking while Docker work completes.
 - Rich container display with state and forwarded ports.
 - Interactive shell handoff with clean terminal clear before/after shell transitions.
 - Image operations: pull/list/delete with curated quick picks and custom image support.
 - Script-to-image workflow: generate Dockerfile from bash script, then optionally build.
 - MySQL quick start flow with version/password/port prompts.
+- Docker Engine API access through `/var/run/docker.sock` for structured list and lifecycle operations.
+- Direct `fork`/`exec` process execution for CLI-backed streaming and interactive commands.
+- Persistent container listings that retain exited containers.
+- Robust stop handling with state polling, timeout retry, and idempotent stop responses.
 - About screen in-app with project/version/repository info.
 
 ---
@@ -35,12 +39,14 @@ It gives you a guided, keyboard-first TUI for common Docker operations like pull
 git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git
 cd tuxdock
 
-# Configure & build (FTXUI is fetched automatically)
-cmake -S . -B build
-cmake --build build -j
+# Configure, build, and test (FTXUI and nlohmann/json are fetched automatically)
+./compile.sh
 
 # Run it (requires Docker permissions)
 sudo ./build/tux-dock
+
+# Build without running tests
+./compile.sh --no-test
 ```
 
 Prefer a prebuilt binary? CI artifacts are published at:
@@ -72,7 +78,7 @@ Current TUI actions:
 
 ## Design Overview
 
-Tux-Dock is now structured around **two main classes**:
+Tux-Dock is organized around the TUI, Docker manager, Engine API client, and direct process runner:
 
 ```cpp
 class DockerManager {
@@ -85,9 +91,9 @@ public:
     bool running;
   };
 
-  // Docker command/data layer
-  std::vector<ContainerInfo> getContainerList() const;
-  std::vector<std::pair<std::string, std::string>> getImageList() const;
+  bool checkConnection(...);
+  ListResult<ContainerInfo> getContainerList() const;
+  ListResult<ImageInfo> getImageList() const;
   bool pullImage(...);
   bool runContainerInteractive(...);
   bool startInteractive(...);
@@ -106,11 +112,11 @@ public:
   void Run();
 
 private:
-  // TUI orchestration layer
+  // TUI orchestration layer with modal busy states
   void OpenInput(...);
   void OpenSelect(...);
   void OpenConfirm(...);
-  void RunDeferredStatusAction(...);
+  void BeginBusyOperation(...);
   void RunWithRestoredIO(...);
   void ExecuteSelectedAction();
   // action handlers bridge UI -> DockerManager
@@ -119,24 +125,44 @@ private:
 
 ### Responsibilities
 
+- `DockerEngineClient`
+  - Talks directly to Docker over the Unix socket.
+  - Parses HTTP responses, including chunked and bodyless responses.
+
+- `ProcessRunner`
+  - Executes direct argument vectors using `fork` and `exec`.
+  - Supports captured output and inherited terminal I/O.
+
 - `DockerManager`
-  - Executes Docker commands.
-  - Escapes shell arguments and returns success/failure + user-facing messages.
-  - Collects container/image data used by the UI.
+  - Maps Engine API JSON into application data.
+  - Performs lifecycle operations and robust stop-state confirmation.
+  - Preserves cached state when refreshes fail.
 
 - `TuxDockApp`
   - Renders the FTXUI interface.
   - Manages modal flows (input/select/confirm/message).
-  - Handles status updates, deferred actions, and interactive shell transitions.
+  - Handles modal flows, busy operations, blocked input, and interactive shell transitions.
   - Coordinates end-to-end user flows by calling `DockerManager` methods.
 
 This split keeps Docker behavior isolated while making UI behavior easier to extend.
 
 ---
 
+## Testing
+
+```bash
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+`compile.sh` runs these tests by default. Pass `--no-test` to skip them.
+
+---
+
 ## About / Version
 
-- Version: `022526-dev`
+- Version: `0.1-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
 - Forgejo: https://mentalnet.xyz/forgejo/markmental/tuxdock

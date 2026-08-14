@@ -35,6 +35,8 @@ add_executable(tux-dock
   src/docker_engine_client.cpp
   src/http_response_parser.cpp
   src/container_parser.cpp
+  src/operation_state.cpp
+  src/stop_waiter.cpp
   src/docker_manager.cpp
 )
 
@@ -66,4 +68,28 @@ if(BUILD_TESTING)
   target_link_libraries(tux-dock-container-tests PRIVATE nlohmann_json::nlohmann_json)
   target_compile_options(tux-dock-container-tests PRIVATE -Wall -Wextra -Wpedantic)
   add_test(NAME tux-dock-container-tests COMMAND tux-dock-container-tests)
+
+  add_executable(tux-dock-operation-tests
+    tests/test_operation_state.cpp
+    src/operation_state.cpp
+  )
+  target_include_directories(tux-dock-operation-tests PRIVATE src)
+  target_compile_options(tux-dock-operation-tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tux-dock-operation-tests COMMAND tux-dock-operation-tests)
+
+  add_executable(tux-dock-stop-tests
+    tests/test_stop_waiter.cpp
+    src/stop_waiter.cpp
+  )
+  target_include_directories(tux-dock-stop-tests PRIVATE src)
+  target_compile_options(tux-dock-stop-tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tux-dock-stop-tests COMMAND tux-dock-stop-tests)
+
+  add_executable(tux-dock-stop-sequence-tests
+    tests/test_stop_sequence.cpp
+    src/stop_waiter.cpp
+  )
+  target_include_directories(tux-dock-stop-sequence-tests PRIVATE src)
+  target_compile_options(tux-dock-stop-sequence-tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tux-dock-stop-sequence-tests COMMAND tux-dock-stop-sequence-tests)
 endif()
