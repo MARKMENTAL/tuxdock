@@ -6,6 +6,7 @@
 #include <cstring>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <sstream>
@@ -55,7 +56,7 @@ EngineResponse DockerEngineClient::request(const std::string& method,
         return response;
     }
 
-    timeval timeout{};
+    struct timeval timeout{};
     timeout.tv_sec = 10;
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
