@@ -44,16 +44,6 @@ public:
     bool execDetachedCommand(const std::string& containerId,
                              const std::string& command,
                              std::string& message) const;
-    bool spinUpMySQL(const std::string& port,
-                     const std::string& password,
-                     const std::string& version,
-                     std::string& message) const;
-    bool createDockerfile(const std::string& baseImage,
-                          const std::string& bashScriptPath,
-                          std::string outputFile,
-                          const std::string& imageName,
-                          std::string& message) const;
-
 private:
     DockerEngineClient engine_;
 

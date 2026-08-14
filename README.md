@@ -69,10 +69,8 @@ Current TUI actions:
 9. Remove Container
 10. Attach Shell to Running Container
 11. Run Detached Command in Container
-12. Spin Up MySQL Container
-13. Create Dockerfile & Build Image from Bash Script
-14. About Tux-Dock
-15. Exit
+12. About Tux-Dock
+13. Exit
 
 ---
 
@@ -103,8 +101,6 @@ public:
   bool deleteImage(...);
   bool execShell(...);
   bool execDetachedCommand(...);
-  bool spinUpMySQL(...);
-  bool createDockerfile(...);
 };
 
 class TuxDockApp {

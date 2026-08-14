@@ -2,6 +2,8 @@
 #include "src/operation_state.hpp"
 
 #include <cctype>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -25,12 +27,11 @@ private:
     enum class ModalMode { None, Input, Confirm, Select, Message, Busy };
     struct RunContainerContext { std::string image; int port_count = 0; std::vector<std::string> ports; };
     struct MySqlContext { std::string port; std::string password; std::string version; };
-    struct DockerfileContext { std::string base_image; std::string script_path; std::string output_file; std::string image_name; };
 
     DockerManager docker_;
     std::vector<DockerManager::ContainerInfo> containers_;
     std::vector<DockerManager::ImageInfo> images_;
-    std::vector<std::string> menu_entries_ = {"Pull Docker Image", "Run/Create Interactive Container", "List All Containers", "List All Images", "Start Container Interactively (boot new session)", "Start Detached Container Session", "Delete Docker Image", "Stop Container", "Remove Container", "Attach Shell to Running Container", "Run Detached Command in Container", "Spin Up MySQL Container", "Create Dockerfile & Build Image from Bash Script", "About Tux-Dock", "Exit"};
+    std::vector<std::string> menu_entries_ = {"Pull Docker Image", "Run/Create Interactive Container", "List All Containers", "List All Images", "Start Container Interactively (boot new session)", "Start Detached Container Session", "Delete Docker Image", "Stop Container", "Remove Container", "Attach Shell to Running Container", "Run Detached Command in Container", "About Tux-Dock", "Exit"};
     int menu_selected_ = 0;
     std::string status_ = "Ready. Select an action and press Enter.";
     ModalMode modal_mode_ = ModalMode::None;
@@ -46,6 +47,8 @@ private:
     std::function<void(bool, int)> select_callback_;
     ftxui::ScreenInteractive* screen_ = nullptr;
     std::thread refresh_thread_;
+    std::thread spinner_thread_;
+    std::atomic<bool> spinner_stop_{true};
     std::vector<std::thread> action_threads_;
     OperationState operation_state_;
     std::size_t spinner_frame_ = 0;
@@ -65,13 +68,14 @@ private:
     void ExecuteSelectedAction();
     void ActionPullImage(); void ActionRunContainer(); void ActionListContainers(); void ActionListImages();
     void ActionStartInteractive(); void ActionStartDetached(); void ActionDeleteImage(); void ActionStopContainer();
-    void ActionRemoveContainer(); void ActionExecShell(); void ActionExecDetachedCommand(); void ActionSpinUpMySQL();
-    void ActionCreateDockerfile(); void ActionAbout();
+    void ActionRemoveContainer(); void ActionExecShell(); void ActionExecDetachedCommand(); void ActionAbout();
     void PromptPortCountAndRun(const std::shared_ptr<RunContainerContext>&); void PromptNextPort(const std::shared_ptr<RunContainerContext>&, int);
     void PromptContainerSelection(const std::string&, std::function<void(const std::string&, const std::string&)>);
     void PromptImageSelection(const std::string&, std::function<void(const std::string&, const std::string&)>);
     void RunDeferredStatusAction(const std::string&, std::function<std::string()>);
     void BeginBusyOperation(const std::string&, const std::string&, std::function<std::string()>);
+    void StartSpinner();
+    void StopSpinner();
     void BeginStopOperation(const std::string& id);
     void RefreshState(const std::string& message = "Refreshing Docker state...");
     void ApplyRefreshResults(DockerManager::ListResult<DockerManager::ContainerInfo> containers,
@@ -163,6 +167,25 @@ void TuxDockApp::RunDeferredStatusAction(const std::string& wait, std::function<
     BeginBusyOperation("Working", wait, std::move(action));
 }
 
+void TuxDockApp::StartSpinner() {
+    StopSpinner();
+    spinner_stop_ = false;
+    auto* active = screen_;
+    spinner_thread_ = std::thread([this, active] {
+        while (active && !spinner_stop_.load() && ftxui::ScreenInteractive::Active() == active) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (spinner_stop_.load() || ftxui::ScreenInteractive::Active() != active) break;
+            active->RequestAnimationFrame();
+            active->Post([this] { if (!spinner_stop_.load()) ++spinner_frame_; });
+        }
+    });
+}
+
+void TuxDockApp::StopSpinner() {
+    spinner_stop_ = true;
+    if (spinner_thread_.joinable()) spinner_thread_.join();
+}
+
 void TuxDockApp::BeginBusyOperation(const std::string& title,
                                     const std::string& message,
                                     std::function<std::string()> action) {
@@ -170,12 +193,14 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
     modal_mode_ = ModalMode::Busy;
     spinner_frame_ = 0;
     auto* active = screen_;
+    StartSpinner();
     if (active) active->PostEvent(ftxui::Event::Custom);
     action_threads_.emplace_back([this, active, action = std::move(action)]() mutable {
         const auto message = action();
         if (active && ftxui::ScreenInteractive::Active() == active) {
             active->Post([this, message] {
                 operation_state_.complete(message);
+                StopSpinner();
                 modal_mode_ = ModalMode::None;
                 OpenMessage("Operation complete", message);
                 RefreshState();
@@ -188,6 +213,8 @@ void TuxDockApp::BeginStopOperation(const std::string& id) {
     operation_state_.begin("Stopping container", "Stopping and refreshing state...");
     modal_mode_ = ModalMode::Busy;
     auto* active = screen_;
+    spinner_frame_ = 0;
+    StartSpinner();
     action_threads_.emplace_back([this, active, id] {
         std::string message;
         const bool stopped = docker_.stopContainer(id, message);
@@ -197,6 +224,7 @@ void TuxDockApp::BeginStopOperation(const std::string& id) {
         active->Post([this, stopped, message, containers = std::move(containers), images = std::move(images)]() mutable {
             ApplyRefreshResults(std::move(containers), std::move(images));
             operation_state_.complete(message);
+            StopSpinner();
             modal_mode_ = ModalMode::None;
             OpenMessage(stopped ? "Container stopped" : "Stop failed", message);
         });
@@ -232,32 +260,15 @@ void TuxDockApp::ActionStopContainer() { PromptContainerSelection("Stop Containe
 void TuxDockApp::ActionRemoveContainer() { PromptContainerSelection("Remove Container", [this](const std::string& id, const std::string& name) { OpenConfirm("Remove Container", "Remove container " + name + "?", [this, id](bool ok) { if (ok) BeginBusyOperation("Removing container", "Please wait...", [this, id] { std::string m; docker_.removeContainer(id, m); return m; }); }); }); }
 void TuxDockApp::ActionExecShell() { PromptContainerSelection("Open Shell", [this](const std::string& id, const std::string&) { std::string m; RunWithRestoredIO([this, &id, &m] { docker_.execShell(id, m); }, true, true); SetStatus(m); }); }
 void TuxDockApp::ActionExecDetachedCommand() { PromptContainerSelection("Run Detached Command", [this](const std::string& id, const std::string& name) { OpenInput("Detached Command", "Enter command to run in " + name + ":", [this, id](bool ok, const std::string& command) { if (!ok) return; BeginBusyOperation("Running command", "Please wait...", [this, id, command] { std::string m; docker_.execDetachedCommand(id, command, m); return m; }); }); }); }
-void TuxDockApp::ActionSpinUpMySQL() { OpenInput("MySQL Setup", "Enter port mapping:", [this](bool ok, const std::string& port) { if (!ok || !IsValidPortMapping(port)) return SetStatus("Use host:container format."); OpenInput("MySQL Setup", "Enter root password:", [this, port](bool ok2, const std::string& password) { if (!ok2) return; OpenInput("MySQL Setup", "Enter version tag:", [this, port, password](bool ok3, const std::string& version) { if (!ok3) return; BeginBusyOperation("Launching MySQL", "Please wait...", [this, port, password, version] { std::string m; docker_.spinUpMySQL(port, password, version, m); return m; }); }); }, true); }); }
-void TuxDockApp::ActionCreateDockerfile() {
-    OpenInput("Dockerfile Builder", "Enter base image:", [this](bool ok, const std::string& base) {
-        if (!ok) return;
-        OpenInput("Dockerfile Builder", "Enter bash script path:", [this, base](bool ok2, const std::string& script) {
-            if (!ok2) return;
-            OpenInput("Dockerfile Builder", "Enter output Dockerfile:", [this, base, script](bool ok3, const std::string& output) {
-                if (!ok3) return;
-                OpenInput("Dockerfile Builder", "Enter image name (empty skips build):", [this, base, script, output](bool ok4, const std::string& image) {
-                    if (!ok4) return;
-                    BeginBusyOperation("Building image", "Creating Dockerfile and running build...", [this, base, script, output, image] {
-                        std::string m;
-                        docker_.createDockerfile(base, script, output, image, m);
-                        return m;
-                    });
-                });
-            });
-        });
-    });
-}
 void TuxDockApp::ActionAbout() { OpenMessage("About Tux-Dock", "Tux-Dock 0.1-beta | Created by markmental"); }
 
-void TuxDockApp::ExecuteSelectedAction() { switch (menu_selected_) { case 0: ActionPullImage(); break; case 1: ActionRunContainer(); break; case 2: ActionListContainers(); break; case 3: ActionListImages(); break; case 4: ActionStartInteractive(); break; case 5: ActionStartDetached(); break; case 6: ActionDeleteImage(); break; case 7: ActionStopContainer(); break; case 8: ActionRemoveContainer(); break; case 9: ActionExecShell(); break; case 10: ActionExecDetachedCommand(); break; case 11: ActionSpinUpMySQL(); break; case 12: ActionCreateDockerfile(); break; case 13: ActionAbout(); break; case 14: if (screen_) screen_->ExitLoopClosure()(); break; default: break; } }
+void TuxDockApp::ExecuteSelectedAction() { switch (menu_selected_) { case 0: ActionPullImage(); break; case 1: ActionRunContainer(); break; case 2: ActionListContainers(); break; case 3: ActionListImages(); break; case 4: ActionStartInteractive(); break; case 5: ActionStartDetached(); break; case 6: ActionDeleteImage(); break; case 7: ActionStopContainer(); break; case 8: ActionRemoveContainer(); break; case 9: ActionExecShell(); break; case 10: ActionExecDetachedCommand(); break; case 11: ActionAbout(); break; case 12: if (screen_) screen_->ExitLoopClosure()(); break; default: break; } }
 
 bool TuxDockApp::OnEvent(ftxui::Event event) {
-    if (modal_mode_ == ModalMode::Busy) return true;
+    if (modal_mode_ == ModalMode::Busy) {
+        if (event == ftxui::Event::Custom) ++spinner_frame_;
+        return true;
+    }
     if (modal_mode_ == ModalMode::Input) { if (event == ftxui::Event::Return) { ResolveInput(true); return true; } if (event == ftxui::Event::Escape) { ResolveInput(false); return true; } return input_component_->OnEvent(event); }
     if (modal_mode_ == ModalMode::Confirm) { if (event == ftxui::Event::Return || event == ftxui::Event::Character("y")) { ResolveConfirm(true); return true; } if (event == ftxui::Event::Escape || event == ftxui::Event::Character("n")) { ResolveConfirm(false); return true; } return true; }
     if (modal_mode_ == ModalMode::Select) { if (event == ftxui::Event::Return) { ResolveSelect(true); return true; } if (event == ftxui::Event::Escape) { ResolveSelect(false); return true; } return select_component_->OnEvent(event); }
@@ -327,6 +338,7 @@ int TuxDockApp::Run() {
     screen.Loop(app);
     screen_ = nullptr;
     if (refresh_thread_.joinable()) refresh_thread_.join();
+    if (spinner_thread_.joinable()) spinner_thread_.join();
     for (auto& thread : action_threads_) if (thread.joinable()) thread.join();
     return 0;
 }
