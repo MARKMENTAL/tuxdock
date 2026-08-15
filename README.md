@@ -14,8 +14,6 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 - Rich container display with state and forwarded ports.
 - Interactive shell handoff with clean terminal clear before/after shell transitions.
 - Image operations: pull/list/delete with curated quick picks and custom image support.
-- Script-to-image workflow: generate Dockerfile from bash script, then optionally build.
-- MySQL quick start flow with version/password/port prompts.
 - Docker Engine API access through `/var/run/docker.sock` for structured list and lifecycle operations.
 - Direct `fork`/`exec` process execution for CLI-backed streaming and interactive commands.
 - Persistent container listings that retain exited containers.
@@ -55,7 +53,7 @@ sudo ./build/tux-dock
 ./compile.sh --web-test-view 9000
 ```
 
-The web report is generated under `/tmp` and includes exact CTest output, test summaries, Docker integration output, and a text rendition of the TUI flow. It requires `nc` or `netcat`; press `Ctrl-C` to stop the server. The default port is `8095`; pass a port after `--web-test-view` to override it. `--web-test-view --no-test` is invalid. Normal test runs include a Docker integration test using `debian:forky`, so Docker must be available.
+The web report is generated under `/tmp` and includes exact CTest output, test summaries, Docker integration output, and a text rendition of the TUI flow. It requires `nc`, `netcat`, or Nmap's `ncat`; press `Ctrl-C` to stop the server. The default port is `8095`; pass a port after `--web-test-view` to override it. `--web-test-view --no-test` is invalid. Normal test runs include a Docker integration test using `debian:forky`, so Docker must be available. On systems with 1 GB or less of available memory, the script automatically uses a smaller build configuration and a single build job.
 
 ---
 
@@ -82,47 +80,6 @@ Current TUI actions:
 ## Design Overview
 
 Tux-Dock is organized around the TUI, Docker manager, Engine API client, and direct process runner:
-
-```cpp
-class DockerManager {
-public:
-  struct ContainerInfo {
-    std::string id;
-    std::string name;
-    std::string status;
-    std::string ports;
-    bool running;
-  };
-
-  bool checkConnection(...);
-  ListResult<ContainerInfo> getContainerList() const;
-  ListResult<ImageInfo> getImageList() const;
-  bool pullImage(...);
-  bool runContainerInteractive(...);
-  bool startInteractive(...);
-  bool startDetached(...);
-  bool stopContainer(...);
-  bool removeContainer(...);
-  bool deleteImage(...);
-  bool execShell(...);
-  bool execDetachedCommand(...);
-};
-
-class TuxDockApp {
-public:
-  void Run();
-
-private:
-  // TUI orchestration layer with modal busy states
-  void OpenInput(...);
-  void OpenSelect(...);
-  void OpenConfirm(...);
-  void BeginBusyOperation(...);
-  void RunWithRestoredIO(...);
-  void ExecuteSelectedAction();
-  // action handlers bridge UI -> DockerManager
-};
-```
 
 ### Responsibilities
 
@@ -153,7 +110,7 @@ This split keeps Docker behavior isolated while making UI behavior easier to ext
 
 ```bash
 cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build -j
+cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 

@@ -6,6 +6,32 @@ run_tests=1
 web_view=0
 web_port=8095
 
+memory_limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
+if [ -z "$memory_limit" ] || [ "$memory_limit" = max ]; then
+    memory_limit=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || true)
+fi
+if [ -z "$memory_limit" ] || [ "$memory_limit" = max ] || [ "$memory_limit" -ge 9223372036854771712 ] 2>/dev/null; then
+    memory_limit=$(awk '/MemTotal:/ { print $2 * 1024; exit }' /proc/meminfo 2>/dev/null || true)
+fi
+low_ram=0
+if [ -n "$memory_limit" ] && [ "$memory_limit" -le 1073741824 ] 2>/dev/null; then
+    low_ram=1
+fi
+
+build_jobs=4
+cpu_count=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
+case "$cpu_count" in
+    ''|*[!0-9]*) ;;
+    *)
+        if [ "$cpu_count" -lt "$build_jobs" ]; then
+            build_jobs=$cpu_count
+        fi
+        ;;
+esac
+if [ "$low_ram" -eq 1 ]; then
+    build_jobs=1
+fi
+
 while [ "$#" -gt 0 ]; do
     argument=$1
     shift
@@ -35,13 +61,20 @@ if [ "$web_view" -eq 1 ] && [ "$run_tests" -eq 0 ]; then
     exit 2
 fi
 
-if [ "$run_tests" -eq 1 ]; then
-    cmake -S . -B build -DBUILD_TESTING=ON
-else
-    cmake -S . -B build -DBUILD_TESTING=OFF
+cmake_args=""
+if [ "$low_ram" -eq 1 ]; then
+    cmake_args="-DCMAKE_BUILD_TYPE=MinSizeRel"
 fi
 
-cmake --build build -j
+if [ "$run_tests" -eq 1 ]; then
+    # shellcheck disable=SC2086
+    cmake -S . -B build -DBUILD_TESTING=ON $cmake_args
+else
+    # shellcheck disable=SC2086
+    cmake -S . -B build -DBUILD_TESTING=OFF $cmake_args
+fi
+
+CMAKE_BUILD_PARALLEL_LEVEL="$build_jobs" cmake --build build
 
 if [ "$run_tests" -eq 1 ]; then
     report_dir=$(mktemp -d /tmp/tux-dock-test.XXXXXX)
@@ -146,19 +179,32 @@ if [ "$run_tests" -eq 1 ]; then
             cat "$report"
         } >"$response"
 
-        if command -v nc >/dev/null 2>&1; then
+        if command -v ncat >/dev/null 2>&1; then
+            nc_command=ncat
+            nc_args='-l'
+            nc_address='0.0.0.0'
+            nc_port="$web_port"
+        elif command -v nc >/dev/null 2>&1; then
             nc_command=nc
+            if "$nc_command" -h 2>&1 | grep -q -- '-N'; then
+                nc_args='-l -N -s 0.0.0.0 -p'
+            else
+                nc_args='-l -s 0.0.0.0 -p'
+            fi
+            nc_address=''
+            nc_port="$web_port"
         elif command -v netcat >/dev/null 2>&1; then
             nc_command=netcat
+            if "$nc_command" -h 2>&1 | grep -q -- '-N'; then
+                nc_args='-l -N -s 0.0.0.0 -p'
+            else
+                nc_args='-l -s 0.0.0.0 -p'
+            fi
+            nc_address=''
+            nc_port="$web_port"
         else
             printf '%s\n' "Web report generated at $report, but nc/netcat is unavailable." >&2
             exit "$test_status"
-        fi
-
-        if "$nc_command" -h 2>&1 | grep -q -- '-N'; then
-            nc_args='-l -N -s 0.0.0.0 -p'
-        else
-            nc_args='-l -s 0.0.0.0 -p'
         fi
 
         printf '%s\n' "Test report: http://0.0.0.0:$web_port/"
@@ -166,7 +212,7 @@ if [ "$run_tests" -eq 1 ]; then
         printf '%s\n' "Press Ctrl-C to stop the server."
         while :; do
             # shellcheck disable=SC2086
-            "$nc_command" $nc_args "$web_port" <"$response"
+            "$nc_command" $nc_args ${nc_address:+"$nc_address"} "$nc_port" <"$response"
         done
     fi
     exit "$test_status"
