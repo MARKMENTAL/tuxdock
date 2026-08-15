@@ -89,27 +89,22 @@ bool DockerManager::pullImage(const std::string& image, std::string& message) co
     return ok;
 }
 
-bool DockerManager::runContainerInteractive(const std::string& image,
-                                            const std::vector<std::string>& ports,
-                                            std::string& message) const {
-    if (image.empty()) {
-        message = "Please choose an image first.";
+bool DockerManager::createContainer(const std::string& name,
+                                    const std::string& image,
+                                    const std::vector<std::string>& ports,
+                                    std::string& message) const {
+    if (name.empty() || image.empty()) {
+        message = "Please provide a container name and choose an image first.";
         return false;
     }
-    std::vector<std::string> args{"docker", "run", "-it"};
+    std::vector<std::string> args{"docker", "create", "--name", name};
     for (const auto& port : ports) {
         args.push_back("-p");
         args.push_back(port);
     }
-    args.insert(args.end(), {image, "/bin/sh"});
-    const bool ok = runProcess(args, message, true);
-    if (ok) message = "Interactive container session finished.";
-    return ok;
-}
-
-bool DockerManager::startInteractive(const std::string& id, std::string& message) const {
-    const bool ok = runProcess({"docker", "start", "-ai", id}, message, true);
-    if (ok) message = "Interactive container session finished.";
+    args.insert(args.end(), {image, "sleep", "infinity"});
+    const bool ok = runProcess(args, message);
+    if (ok) message = "Container created and ready to start when you are ready.";
     return ok;
 }
 

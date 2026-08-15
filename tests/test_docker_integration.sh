@@ -33,9 +33,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-printf '%s\n' "[TUI] Actions > Run/Create Interactive Container"
+printf '%s\n' "[TUI] Actions > Create Container"
 printf '%s\n' "[TUI] Busy |"
-printf '%s\n' "[TUI] docker run --name $name $image sh -c '<tests>'"
+printf '%s\n' "[TUI] docker create --name $name $image sleep infinity"
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
     printf '%s\n' "[TUI] Pull Docker Image: $image"
@@ -53,8 +53,10 @@ run_in_container() {
     printf '%s\n' "[TUI] Complete: $command_name succeeded"
 }
 
-run_raw "docker run -d --name $name $image sleep 300" docker run -d --name "$name" "$image" sleep 300
+run_raw "docker create --name $name $image sleep infinity" docker create --name "$name" "$image" sleep infinity
 printf '%s\n' "[TUI] Complete: Container created"
+run_raw "docker start $name" docker start "$name"
+printf '%s\n' "[TUI] Complete: Container started"
 run_in_container "ls /" ls /
 run_in_container "cat /etc/os-release" cat /etc/os-release
 run_in_container "apt-get update" apt-get update

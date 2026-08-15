@@ -25,17 +25,36 @@ public:
 
 private:
     enum class ModalMode { None, Input, Confirm, Select, Message, Busy };
-    struct RunContainerContext { std::string image; int port_count = 0; std::vector<std::string> ports; };
-    struct MySqlContext { std::string port; std::string password; std::string version; };
+    struct RunContainerContext {
+        std::string name;
+        std::string image;
+        int port_count = 0;
+        std::vector<std::string> ports;
+    };
 
     DockerManager docker_;
     std::vector<DockerManager::ContainerInfo> containers_;
     std::vector<DockerManager::ImageInfo> images_;
-    std::vector<std::string> menu_entries_ = {"Pull Docker Image", "Run/Create Interactive Container", "List All Containers", "List All Images", "Start Container Interactively (boot new session)", "Start Detached Container Session", "Delete Docker Image", "Stop Container", "Remove Container", "Attach Shell to Running Container", "Run Detached Command in Container", "About Tux-Dock", "Exit"};
+    std::vector<std::string> menu_entries_ = {
+        "Pull Docker Image",
+        "Create Container",
+        "List All Containers",
+        "List All Images",
+        "Start Detached Container Session",
+        "Delete Docker Image",
+        "Stop Container",
+        "Remove Container",
+        "Attach Shell to Running Container",
+        "Run Detached Command in Container",
+        "About Tux-Dock",
+        "Exit",
+    };
     int menu_selected_ = 0;
     std::string status_ = "Ready. Select an action and press Enter.";
     ModalMode modal_mode_ = ModalMode::None;
-    std::string modal_title_, modal_text_, modal_input_;
+    std::string modal_title_;
+    std::string modal_text_;
+    std::string modal_input_;
     ftxui::Element modal_content_;
     std::vector<std::string> modal_select_entries_;
     int modal_select_index_ = 0;
@@ -54,24 +73,43 @@ private:
     std::size_t spinner_frame_ = 0;
 
     static bool IsDigits(const std::string& value);
+    static bool IsValidContainerName(const std::string& name);
     static std::string ShortId(const std::string& id);
     static bool IsValidPortMapping(const std::string& mapping);
     ftxui::Element FormatContainerList(const std::vector<DockerManager::ContainerInfo>& containers) const;
     ftxui::Element FormatImageList(const std::vector<DockerManager::ImageInfo>& images) const;
     void SetStatus(const std::string& message) { status_ = message; }
-    void OpenInput(const std::string&, const std::string&, std::function<void(bool, const std::string&)>, bool secret = false);
+    void OpenInput(const std::string&, const std::string&,
+                   std::function<void(bool, const std::string&)>, bool secret = false);
     void OpenConfirm(const std::string&, const std::string&, std::function<void(bool)>);
-    void OpenSelect(const std::string&, const std::string&, std::vector<std::string>, std::function<void(bool, int)>);
+    void OpenSelect(const std::string&, const std::string&, std::vector<std::string>,
+                    std::function<void(bool, int)>);
     void OpenMessage(const std::string& title, const std::string& text);
     void OpenListMessage(const std::string& title, ftxui::Element content);
-    void ResolveInput(bool); void ResolveConfirm(bool); void ResolveSelect(bool); void CloseMessage();
+    void ResolveInput(bool);
+    void ResolveConfirm(bool);
+    void ResolveSelect(bool);
+    void CloseMessage();
     void ExecuteSelectedAction();
-    void ActionPullImage(); void ActionRunContainer(); void ActionListContainers(); void ActionListImages();
-    void ActionStartInteractive(); void ActionStartDetached(); void ActionDeleteImage(); void ActionStopContainer();
-    void ActionRemoveContainer(); void ActionExecShell(); void ActionExecDetachedCommand(); void ActionAbout();
-    void PromptPortCountAndRun(const std::shared_ptr<RunContainerContext>&); void PromptNextPort(const std::shared_ptr<RunContainerContext>&, int);
-    void PromptContainerSelection(const std::string&, std::function<void(const std::string&, const std::string&)>);
-    void PromptImageSelection(const std::string&, std::function<void(const std::string&, const std::string&)>);
+    void ActionPullImage();
+    void ActionRunContainer();
+    void ActionListContainers();
+    void ActionListImages();
+    void ActionStartDetached();
+    void ActionDeleteImage();
+    void ActionStopContainer();
+    void ActionRemoveContainer();
+    void ActionExecShell();
+    void ActionExecDetachedCommand();
+    void ActionAbout();
+    void PromptPortCountAndRun(const std::shared_ptr<RunContainerContext>&);
+    void PromptNextPort(const std::shared_ptr<RunContainerContext>&, int);
+    void PromptContainerSelection(
+        const std::string&,
+        std::function<void(const std::string&, const std::string&)>);
+    void PromptImageSelection(
+        const std::string&,
+        std::function<void(const std::string&, const std::string&)>);
     void RunDeferredStatusAction(const std::string&, std::function<std::string()>);
     void BeginBusyOperation(const std::string&, const std::string&, std::function<std::string()>);
     void StartSpinner();
@@ -81,13 +119,39 @@ private:
     void ApplyRefreshResults(DockerManager::ListResult<DockerManager::ContainerInfo> containers,
                              DockerManager::ListResult<DockerManager::ImageInfo> images);
     static void ClearTerminal();
-    void RunWithRestoredIO(const std::function<void()>&, bool clear_before = false, bool clear_after = false);
-    bool OnEvent(ftxui::Event); ftxui::Element Render() const; ftxui::Element RenderModal() const;
+    void RunWithRestoredIO(const std::function<void()>&, bool clear_before = false,
+                           bool clear_after = false);
+    bool OnEvent(ftxui::Event);
+    ftxui::Element Render() const;
+    ftxui::Element RenderModal() const;
 };
 
-bool TuxDockApp::IsDigits(const std::string& value) { if (value.empty()) return false; for (unsigned char c : value) if (!std::isdigit(c)) return false; return true; }
-std::string TuxDockApp::ShortId(const std::string& id) { return id.size() <= 12 ? id : id.substr(0, 12); }
-bool TuxDockApp::IsValidPortMapping(const std::string& mapping) { const auto p = mapping.find(':'); return p != std::string::npos && IsDigits(mapping.substr(0, p)) && IsDigits(mapping.substr(p + 1)); }
+bool TuxDockApp::IsDigits(const std::string& value) {
+    if (value.empty()) return false;
+    for (unsigned char c : value) {
+        if (!std::isdigit(c)) return false;
+    }
+    return true;
+}
+
+bool TuxDockApp::IsValidContainerName(const std::string& name) {
+    if (name.empty()) return false;
+    for (unsigned char c : name) {
+        if (!(std::isalnum(c) || c == '_' || c == '.' || c == '-')) return false;
+    }
+    return true;
+}
+
+std::string TuxDockApp::ShortId(const std::string& id) {
+    return id.size() <= 12 ? id : id.substr(0, 12);
+}
+
+bool TuxDockApp::IsValidPortMapping(const std::string& mapping) {
+    const auto separator = mapping.find(':');
+    return separator != std::string::npos &&
+           IsDigits(mapping.substr(0, separator)) &&
+           IsDigits(mapping.substr(separator + 1));
+}
 ftxui::Element TuxDockApp::FormatContainerList(const std::vector<DockerManager::ContainerInfo>& items) const {
     using namespace ftxui;
     Elements rows;
@@ -150,18 +214,139 @@ void TuxDockApp::ApplyRefreshResults(
     SetStatus(error.empty() ? "Docker state refreshed." : "Refresh failed; cached state preserved.\n" + error);
 }
 
-void TuxDockApp::OpenInput(const std::string& title, const std::string& text, std::function<void(bool, const std::string&)> callback, bool secret) { modal_mode_ = ModalMode::Input; modal_title_ = title; modal_text_ = text; modal_input_.clear(); ftxui::InputOption option; option.password = secret; input_component_ = ftxui::Input(&modal_input_, "Type here", option); input_callback_ = std::move(callback); }
-void TuxDockApp::OpenConfirm(const std::string& title, const std::string& text, std::function<void(bool)> callback) { modal_mode_ = ModalMode::Confirm; modal_title_ = title; modal_text_ = text; confirm_callback_ = std::move(callback); }
-void TuxDockApp::OpenSelect(const std::string& title, const std::string& text, std::vector<std::string> options, std::function<void(bool, int)> callback) { modal_mode_ = ModalMode::Select; modal_title_ = title; modal_text_ = text; modal_select_entries_ = std::move(options); modal_select_index_ = 0; select_component_ = ftxui::Menu(&modal_select_entries_, &modal_select_index_); select_callback_ = std::move(callback); }
-void TuxDockApp::OpenMessage(const std::string& title, const std::string& text) { modal_mode_ = ModalMode::Message; modal_title_ = title; modal_text_ = text; modal_content_ = {}; }
-void TuxDockApp::OpenListMessage(const std::string& title, ftxui::Element content) { modal_mode_ = ModalMode::Message; modal_title_ = title; modal_text_.clear(); modal_content_ = std::move(content); }
-void TuxDockApp::ResolveInput(bool confirmed) { auto callback = std::move(input_callback_); const auto value = modal_input_; modal_mode_ = ModalMode::None; input_callback_ = {}; if (callback) callback(confirmed, value); }
-void TuxDockApp::ResolveConfirm(bool confirmed) { auto callback = std::move(confirm_callback_); modal_mode_ = ModalMode::None; confirm_callback_ = {}; if (callback) callback(confirmed); }
-void TuxDockApp::ResolveSelect(bool confirmed) { auto callback = std::move(select_callback_); const int selected = modal_select_index_; modal_mode_ = ModalMode::None; select_callback_ = {}; if (callback) callback(confirmed, selected); }
-void TuxDockApp::CloseMessage() { modal_mode_ = ModalMode::None; modal_content_ = {}; }
+void TuxDockApp::OpenInput(const std::string& title,
+                           const std::string& text,
+                           std::function<void(bool, const std::string&)> callback,
+                           bool secret) {
+    modal_mode_ = ModalMode::Input;
+    modal_title_ = title;
+    modal_text_ = text;
+    modal_input_.clear();
 
-void TuxDockApp::PromptContainerSelection(const std::string& title, std::function<void(const std::string&, const std::string&)> callback) { if (containers_.empty()) { RefreshState("No cached containers. Refreshing..."); return; } std::vector<std::string> options; for (const auto& c : containers_) options.push_back(c.name + " (" + ShortId(c.id) + ") [" + (c.running ? "running" : "stopped") + "]"); OpenSelect(title, "Select a container with arrows and press Enter.", std::move(options), [this, callback = std::move(callback)](bool ok, int selected) { if (!ok) return SetStatus("Action cancelled."); if (selected < 0 || selected >= static_cast<int>(containers_.size())) return SetStatus("Please choose a valid container."); const auto& c = containers_[static_cast<std::size_t>(selected)]; callback(c.id, c.name); }); }
-void TuxDockApp::PromptImageSelection(const std::string& title, std::function<void(const std::string&, const std::string&)> callback) { if (images_.empty()) { RefreshState("No cached images. Refreshing..."); return; } std::vector<std::string> options; for (const auto& image : images_) options.push_back(image.second + " (" + ShortId(image.first) + ")"); OpenSelect(title, "Select an image with arrows and press Enter.", std::move(options), [this, callback = std::move(callback)](bool ok, int selected) { if (!ok) return SetStatus("Action cancelled."); if (selected < 0 || selected >= static_cast<int>(images_.size())) return SetStatus("Please choose a valid image."); const auto& image = images_[static_cast<std::size_t>(selected)]; callback(image.first, image.second); }); }
+    ftxui::InputOption option;
+    option.password = secret;
+    input_component_ = ftxui::Input(&modal_input_, "Type here", option);
+    input_callback_ = std::move(callback);
+}
+
+void TuxDockApp::OpenConfirm(const std::string& title,
+                             const std::string& text,
+                             std::function<void(bool)> callback) {
+    modal_mode_ = ModalMode::Confirm;
+    modal_title_ = title;
+    modal_text_ = text;
+    confirm_callback_ = std::move(callback);
+}
+
+void TuxDockApp::OpenSelect(const std::string& title,
+                            const std::string& text,
+                            std::vector<std::string> options,
+                            std::function<void(bool, int)> callback) {
+    modal_mode_ = ModalMode::Select;
+    modal_title_ = title;
+    modal_text_ = text;
+    modal_select_entries_ = std::move(options);
+    modal_select_index_ = 0;
+    select_component_ = ftxui::Menu(&modal_select_entries_, &modal_select_index_);
+    select_callback_ = std::move(callback);
+}
+
+void TuxDockApp::OpenMessage(const std::string& title, const std::string& text) {
+    modal_mode_ = ModalMode::Message;
+    modal_title_ = title;
+    modal_text_ = text;
+    modal_content_ = {};
+}
+
+void TuxDockApp::OpenListMessage(const std::string& title, ftxui::Element content) {
+    modal_mode_ = ModalMode::Message;
+    modal_title_ = title;
+    modal_text_.clear();
+    modal_content_ = std::move(content);
+}
+
+void TuxDockApp::ResolveInput(bool confirmed) {
+    auto callback = std::move(input_callback_);
+    const auto value = modal_input_;
+    modal_mode_ = ModalMode::None;
+    input_callback_ = {};
+    if (callback) callback(confirmed, value);
+}
+
+void TuxDockApp::ResolveConfirm(bool confirmed) {
+    auto callback = std::move(confirm_callback_);
+    modal_mode_ = ModalMode::None;
+    confirm_callback_ = {};
+    if (callback) callback(confirmed);
+}
+
+void TuxDockApp::ResolveSelect(bool confirmed) {
+    auto callback = std::move(select_callback_);
+    const int selected = modal_select_index_;
+    modal_mode_ = ModalMode::None;
+    select_callback_ = {};
+    if (callback) callback(confirmed, selected);
+}
+
+void TuxDockApp::CloseMessage() {
+    modal_mode_ = ModalMode::None;
+    modal_content_ = {};
+}
+
+void TuxDockApp::PromptContainerSelection(
+    const std::string& title,
+    std::function<void(const std::string&, const std::string&)> callback) {
+    if (containers_.empty()) {
+        RefreshState("No cached containers. Refreshing...");
+        return;
+    }
+
+    std::vector<std::string> options;
+    for (const auto& container : containers_) {
+        options.push_back(container.name + " (" + ShortId(container.id) + ") [" +
+                         (container.running ? "running" : "stopped") + "]");
+    }
+
+    OpenSelect(
+        title,
+        "Select a container with arrows and press Enter.",
+        std::move(options),
+        [this, callback = std::move(callback)](bool ok, int selected) {
+            if (!ok) return SetStatus("Action cancelled.");
+            if (selected < 0 || selected >= static_cast<int>(containers_.size())) {
+                return SetStatus("Please choose a valid container.");
+            }
+            const auto& container = containers_[static_cast<std::size_t>(selected)];
+            callback(container.id, container.name);
+        });
+}
+
+void TuxDockApp::PromptImageSelection(
+    const std::string& title,
+    std::function<void(const std::string&, const std::string&)> callback) {
+    if (images_.empty()) {
+        RefreshState("No cached images. Refreshing...");
+        return;
+    }
+
+    std::vector<std::string> options;
+    for (const auto& image : images_) {
+        options.push_back(image.second + " (" + ShortId(image.first) + ")");
+    }
+
+    OpenSelect(
+        title,
+        "Select an image with arrows and press Enter.",
+        std::move(options),
+        [this, callback = std::move(callback)](bool ok, int selected) {
+            if (!ok) return SetStatus("Action cancelled.");
+            if (selected < 0 || selected >= static_cast<int>(images_.size())) {
+                return SetStatus("Please choose a valid image.");
+            }
+            const auto& image = images_[static_cast<std::size_t>(selected)];
+            callback(image.first, image.second);
+        });
+}
 
 void TuxDockApp::RunDeferredStatusAction(const std::string& wait, std::function<std::string()> action) {
     BeginBusyOperation("Working", wait, std::move(action));
@@ -232,7 +417,20 @@ void TuxDockApp::BeginStopOperation(const std::string& id) {
     });
 }
 void TuxDockApp::ClearTerminal() { std::cout << "\x1b[2J\x1b[H" << std::flush; }
-void TuxDockApp::RunWithRestoredIO(const std::function<void()>& action, bool before, bool after) { if (screen_) screen_->WithRestoredIO([&] { if (before) ClearTerminal(); action(); if (after) ClearTerminal(); })(); else action(); }
+void TuxDockApp::RunWithRestoredIO(const std::function<void()>& action,
+                                   bool before,
+                                   bool after) {
+    if (!screen_) {
+        action();
+        return;
+    }
+
+    screen_->WithRestoredIO([&] {
+        if (before) ClearTerminal();
+        action();
+        if (after) ClearTerminal();
+    })();
+}
 
 void TuxDockApp::ActionListContainers() {
     if (containers_.empty()) {
@@ -249,31 +447,242 @@ void TuxDockApp::ActionListImages() {
     }
     OpenListMessage("Images", FormatImageList(images_));
 }
-void TuxDockApp::ActionPullImage() { OpenInput("Pull Docker Image", "Enter image name:", [this](bool ok, const std::string& image) { if (!ok) return; BeginBusyOperation("Pulling image", "Please wait...", [this, image] { std::string m; docker_.pullImage(image, m); return m; }); }); }
-void TuxDockApp::ActionRunContainer() { PromptImageSelection("Run Interactive Container", [this](const std::string&, const std::string& tag) { auto context = std::make_shared<RunContainerContext>(); context->image = tag; PromptPortCountAndRun(context); }); }
-void TuxDockApp::PromptPortCountAndRun(const std::shared_ptr<RunContainerContext>& c) { OpenInput("Port Mappings", "How many port mappings? (0 for none)", [this, c](bool ok, const std::string& value) { if (!ok) return; if (!IsDigits(value)) return SetStatus("Please enter a valid number."); c->port_count = std::stoi(value); PromptNextPort(c, 0); }); }
-void TuxDockApp::PromptNextPort(const std::shared_ptr<RunContainerContext>& c, int index) { if (index >= c->port_count) { std::string m; RunWithRestoredIO([this, c, &m] { docker_.runContainerInteractive(c->image, c->ports, m); }, true, true); SetStatus(m); RefreshState(); return; } OpenInput("Port Mapping", "Enter mapping #" + std::to_string(index + 1), [this, c, index](bool ok, const std::string& value) { if (!ok) return; if (!IsValidPortMapping(value)) return SetStatus("Use host:container format."); c->ports.push_back(value); PromptNextPort(c, index + 1); }); }
-void TuxDockApp::ActionStartInteractive() { PromptContainerSelection("Start Interactively", [this](const std::string& id, const std::string&) { std::string m; RunWithRestoredIO([this, &id, &m] { docker_.startInteractive(id, m); }, true, true); SetStatus(m); RefreshState(); }); }
-void TuxDockApp::ActionStartDetached() { PromptContainerSelection("Start Detached", [this](const std::string& id, const std::string&) { BeginBusyOperation("Starting container", "Please wait...", [this, id] { std::string m; docker_.startDetached(id, m); return m; }); }); }
-void TuxDockApp::ActionDeleteImage() { PromptImageSelection("Delete Image", [this](const std::string& id, const std::string& tag) { OpenConfirm("Delete Image", "Delete image " + tag + "?", [this, id](bool ok) { if (ok) BeginBusyOperation("Deleting image", "Please wait...", [this, id] { std::string m; docker_.deleteImage(id, m); return m; }); }); }); }
-void TuxDockApp::ActionStopContainer() { PromptContainerSelection("Stop Container", [this](const std::string& id, const std::string&) { BeginStopOperation(id); }); }
-void TuxDockApp::ActionRemoveContainer() { PromptContainerSelection("Remove Container", [this](const std::string& id, const std::string& name) { OpenConfirm("Remove Container", "Remove container " + name + "?", [this, id](bool ok) { if (ok) BeginBusyOperation("Removing container", "Please wait...", [this, id] { std::string m; docker_.removeContainer(id, m); return m; }); }); }); }
-void TuxDockApp::ActionExecShell() { PromptContainerSelection("Open Shell", [this](const std::string& id, const std::string&) { std::string m; RunWithRestoredIO([this, &id, &m] { docker_.execShell(id, m); }, true, true); SetStatus(m); }); }
-void TuxDockApp::ActionExecDetachedCommand() { PromptContainerSelection("Run Detached Command", [this](const std::string& id, const std::string& name) { OpenInput("Detached Command", "Enter command to run in " + name + ":", [this, id](bool ok, const std::string& command) { if (!ok) return; BeginBusyOperation("Running command", "Please wait...", [this, id, command] { std::string m; docker_.execDetachedCommand(id, command, m); return m; }); }); }); }
-void TuxDockApp::ActionAbout() { OpenMessage("About Tux-Dock", "Tux-Dock 0.1-beta | Created by markmental"); }
+void TuxDockApp::ActionPullImage() {
+    OpenInput(
+        "Pull Docker Image", "Enter image name:",
+        [this](bool ok, const std::string& image) {
+            if (!ok) return;
+            BeginBusyOperation(
+                "Pulling image", "Please wait...",
+                [this, image] {
+                    std::string message;
+                    docker_.pullImage(image, message);
+                    return message;
+                });
+        });
+}
 
-void TuxDockApp::ExecuteSelectedAction() { switch (menu_selected_) { case 0: ActionPullImage(); break; case 1: ActionRunContainer(); break; case 2: ActionListContainers(); break; case 3: ActionListImages(); break; case 4: ActionStartInteractive(); break; case 5: ActionStartDetached(); break; case 6: ActionDeleteImage(); break; case 7: ActionStopContainer(); break; case 8: ActionRemoveContainer(); break; case 9: ActionExecShell(); break; case 10: ActionExecDetachedCommand(); break; case 11: ActionAbout(); break; case 12: if (screen_) screen_->ExitLoopClosure()(); break; default: break; } }
+void TuxDockApp::ActionRunContainer() {
+    PromptImageSelection(
+        "Create Container",
+        [this](const std::string&, const std::string& tag) {
+            auto context = std::make_shared<RunContainerContext>();
+            context->image = tag;
+            OpenInput(
+                "Container Name", "Enter a name for the container:",
+                [this, context](bool ok, const std::string& name) {
+                    if (!ok) return;
+                    if (!IsValidContainerName(name)) {
+                        return SetStatus(
+                            "Use letters, numbers, '.', '_', or '-' in the container name.");
+                    }
+                    context->name = name;
+                    PromptPortCountAndRun(context);
+                });
+        });
+}
+
+void TuxDockApp::PromptPortCountAndRun(
+    const std::shared_ptr<RunContainerContext>& context) {
+    OpenInput(
+        "Port Mappings", "How many port mappings? (0 for none)",
+        [this, context](bool ok, const std::string& value) {
+            if (!ok) return;
+            if (!IsDigits(value)) return SetStatus("Please enter a valid number.");
+            context->port_count = std::stoi(value);
+            PromptNextPort(context, 0);
+        });
+}
+
+void TuxDockApp::PromptNextPort(
+    const std::shared_ptr<RunContainerContext>& context,
+    int index) {
+    if (index >= context->port_count) {
+        BeginBusyOperation(
+            "Creating container", "Please wait...",
+            [this, context] {
+                std::string message;
+                docker_.createContainer(context->name, context->image,
+                                        context->ports, message);
+                return message;
+            });
+        return;
+    }
+
+    OpenInput(
+        "Port Mapping", "Enter mapping #" + std::to_string(index + 1),
+        [this, context, index](bool ok, const std::string& value) {
+            if (!ok) return;
+            if (!IsValidPortMapping(value)) {
+                return SetStatus("Use host:container format.");
+            }
+            context->ports.push_back(value);
+            PromptNextPort(context, index + 1);
+        });
+}
+
+void TuxDockApp::ActionStartDetached() {
+    PromptContainerSelection(
+        "Start Detached",
+        [this](const std::string& id, const std::string&) {
+            BeginBusyOperation(
+                "Starting container", "Please wait...",
+                [this, id] {
+                    std::string message;
+                    docker_.startDetached(id, message);
+                    return message;
+                });
+        });
+}
+
+void TuxDockApp::ActionDeleteImage() {
+    PromptImageSelection(
+        "Delete Image",
+        [this](const std::string& id, const std::string& tag) {
+            OpenConfirm(
+                "Delete Image", "Delete image " + tag + "?",
+                [this, id](bool ok) {
+                    if (!ok) return;
+                    BeginBusyOperation(
+                        "Deleting image", "Please wait...",
+                        [this, id] {
+                            std::string message;
+                            docker_.deleteImage(id, message);
+                            return message;
+                        });
+                });
+        });
+}
+
+void TuxDockApp::ActionStopContainer() {
+    PromptContainerSelection(
+        "Stop Container",
+        [this](const std::string& id, const std::string&) {
+            BeginStopOperation(id);
+        });
+}
+
+void TuxDockApp::ActionRemoveContainer() {
+    PromptContainerSelection(
+        "Remove Container",
+        [this](const std::string& id, const std::string& name) {
+            OpenConfirm(
+                "Remove Container", "Remove container " + name + "?",
+                [this, id](bool ok) {
+                    if (!ok) return;
+                    BeginBusyOperation(
+                        "Removing container", "Please wait...",
+                        [this, id] {
+                            std::string message;
+                            docker_.removeContainer(id, message);
+                            return message;
+                        });
+                });
+        });
+}
+
+void TuxDockApp::ActionExecShell() {
+    PromptContainerSelection(
+        "Open Shell",
+        [this](const std::string& id, const std::string&) {
+            std::string message;
+            RunWithRestoredIO(
+                [this, &id, &message] { docker_.execShell(id, message); }, true, true);
+            SetStatus(message);
+        });
+}
+
+void TuxDockApp::ActionExecDetachedCommand() {
+    PromptContainerSelection(
+        "Run Detached Command",
+        [this](const std::string& id, const std::string& name) {
+            OpenInput(
+                "Detached Command", "Enter command to run in " + name + ":",
+                [this, id](bool ok, const std::string& command) {
+                    if (!ok) return;
+                    BeginBusyOperation(
+                        "Running command", "Please wait...",
+                        [this, id, command] {
+                            std::string message;
+                            docker_.execDetachedCommand(id, command, message);
+                            return message;
+                        });
+                });
+        });
+}
+
+void TuxDockApp::ActionAbout() {
+    OpenMessage("About Tux-Dock", "Tux-Dock 0.1.1-beta | Created by markmental");
+}
+
+void TuxDockApp::ExecuteSelectedAction() {
+    switch (menu_selected_) {
+        case 0: ActionPullImage(); break;
+        case 1: ActionRunContainer(); break;
+        case 2: ActionListContainers(); break;
+        case 3: ActionListImages(); break;
+        case 4: ActionStartDetached(); break;
+        case 5: ActionDeleteImage(); break;
+        case 6: ActionStopContainer(); break;
+        case 7: ActionRemoveContainer(); break;
+        case 8: ActionExecShell(); break;
+        case 9: ActionExecDetachedCommand(); break;
+        case 10: ActionAbout(); break;
+        case 11:
+            if (screen_) screen_->ExitLoopClosure()();
+            break;
+        default: break;
+    }
+}
 
 bool TuxDockApp::OnEvent(ftxui::Event event) {
     if (modal_mode_ == ModalMode::Busy) {
         if (event == ftxui::Event::Custom) ++spinner_frame_;
         return true;
     }
-    if (modal_mode_ == ModalMode::Input) { if (event == ftxui::Event::Return) { ResolveInput(true); return true; } if (event == ftxui::Event::Escape) { ResolveInput(false); return true; } return input_component_->OnEvent(event); }
-    if (modal_mode_ == ModalMode::Confirm) { if (event == ftxui::Event::Return || event == ftxui::Event::Character("y")) { ResolveConfirm(true); return true; } if (event == ftxui::Event::Escape || event == ftxui::Event::Character("n")) { ResolveConfirm(false); return true; } return true; }
-    if (modal_mode_ == ModalMode::Select) { if (event == ftxui::Event::Return) { ResolveSelect(true); return true; } if (event == ftxui::Event::Escape) { ResolveSelect(false); return true; } return select_component_->OnEvent(event); }
-    if (modal_mode_ == ModalMode::Message) { if (event == ftxui::Event::Return || event == ftxui::Event::Escape) { CloseMessage(); return true; } return true; }
-    if (event == ftxui::Event::Return) { ExecuteSelectedAction(); return true; }
+    if (modal_mode_ == ModalMode::Input) {
+        if (event == ftxui::Event::Return) {
+            ResolveInput(true);
+            return true;
+        }
+        if (event == ftxui::Event::Escape) {
+            ResolveInput(false);
+            return true;
+        }
+        return input_component_->OnEvent(event);
+    }
+    if (modal_mode_ == ModalMode::Confirm) {
+        if (event == ftxui::Event::Return || event == ftxui::Event::Character("y")) {
+            ResolveConfirm(true);
+            return true;
+        }
+        if (event == ftxui::Event::Escape || event == ftxui::Event::Character("n")) {
+            ResolveConfirm(false);
+            return true;
+        }
+        return true;
+    }
+    if (modal_mode_ == ModalMode::Select) {
+        if (event == ftxui::Event::Return) {
+            ResolveSelect(true);
+            return true;
+        }
+        if (event == ftxui::Event::Escape) {
+            ResolveSelect(false);
+            return true;
+        }
+        return select_component_->OnEvent(event);
+    }
+    if (modal_mode_ == ModalMode::Message) {
+        if (event == ftxui::Event::Return || event == ftxui::Event::Escape) {
+            CloseMessage();
+        }
+        return true;
+    }
+    if (event == ftxui::Event::Return) {
+        ExecuteSelectedAction();
+        return true;
+    }
     return false;
 }
 ftxui::Element TuxDockApp::RenderModal() const {
@@ -281,13 +690,21 @@ ftxui::Element TuxDockApp::RenderModal() const {
     Element body;
     Element footer;
     if (modal_mode_ == ModalMode::Input) {
-        body = vbox(Elements{paragraph(modal_text_), separator(), input_component_->Render() | border});
+        body = vbox(Elements{
+            paragraph(modal_text_),
+            separator(),
+            input_component_->Render() | border,
+        });
         footer = text("Enter: confirm   Esc: cancel") | dim;
     } else if (modal_mode_ == ModalMode::Confirm) {
         body = paragraph(modal_text_);
         footer = text("Y/Enter: confirm   N/Esc: cancel") | dim;
     } else if (modal_mode_ == ModalMode::Select) {
-        body = vbox(Elements{paragraph(modal_text_), separator(), select_component_->Render() | frame | vscroll_indicator});
+        body = vbox(Elements{
+            paragraph(modal_text_),
+            separator(),
+            select_component_->Render() | frame | vscroll_indicator,
+        });
         footer = text("Up/Down: choose   Enter: confirm   Esc: cancel") | dim;
     } else if (modal_mode_ == ModalMode::Busy) {
         static const std::string spinner = "|/-\\";
@@ -303,12 +720,30 @@ ftxui::Element TuxDockApp::RenderModal() const {
                size(HEIGHT, LESS_THAN, 18) | size(WIDTH, LESS_THAN, 96);
         footer = text("Enter/Esc: close") | dim;
     }
-    const std::string title = modal_mode_ == ModalMode::Busy ? operation_state_.title() : modal_title_;
+    const std::string title = modal_mode_ == ModalMode::Busy
+                                  ? operation_state_.title()
+                                  : modal_title_;
     return window(text(title), vbox(Elements{body, separator(), footer})) |
            size(WIDTH, LESS_THAN, 96) | size(WIDTH, GREATER_THAN, 42) |
            size(HEIGHT, LESS_THAN, 24) | size(HEIGHT, GREATER_THAN, 10) | center;
 }
-ftxui::Element TuxDockApp::Render() const { using namespace ftxui; auto base = window(text("Actions"), vbox(Elements{menu_component_->Render() | frame | vscroll_indicator, separator(), text("Up/Down: navigate   Enter: select") | dim})) | size(WIDTH, GREATER_THAN, 56) | size(WIDTH, LESS_THAN, 90) | center; return modal_mode_ == ModalMode::None ? base : dbox({base, RenderModal() | clear_under | center}); }
+ftxui::Element TuxDockApp::Render() const {
+    using namespace ftxui;
+
+    auto base = window(
+        text("Actions"),
+        vbox(Elements{
+            menu_component_->Render() | frame | vscroll_indicator,
+            separator(),
+            text("Up/Down: navigate   Enter: select") | dim,
+        })) |
+                size(WIDTH, GREATER_THAN, 56) |
+                size(WIDTH, LESS_THAN, 90) | center;
+
+    return modal_mode_ == ModalMode::None
+               ? base
+               : dbox({base, RenderModal() | clear_under | center});
+}
 int TuxDockApp::Run() {
     std::string connection_error;
     if (!docker_.checkConnection(connection_error)) {
@@ -332,14 +767,22 @@ int TuxDockApp::Run() {
     }
 
     auto root = ftxui::Renderer(menu_component_, [this] { return Render(); });
-    auto app = ftxui::CatchEvent(root, [this](ftxui::Event e) { return OnEvent(e); });
+    auto app = ftxui::CatchEvent(root, [this](ftxui::Event event) {
+        return OnEvent(event);
+    });
     auto screen = ftxui::ScreenInteractive::TerminalOutput();
     screen_ = &screen;
     screen.Loop(app);
     screen_ = nullptr;
     if (refresh_thread_.joinable()) refresh_thread_.join();
     if (spinner_thread_.joinable()) spinner_thread_.join();
-    for (auto& thread : action_threads_) if (thread.joinable()) thread.join();
+    for (auto& thread : action_threads_) {
+        if (thread.joinable()) thread.join();
+    }
     return 0;
 }
-int main() { TuxDockApp app; return app.Run(); }
+
+int main() {
+    TuxDockApp app;
+    return app.Run();
+}

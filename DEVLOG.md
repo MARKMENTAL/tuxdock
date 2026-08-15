@@ -1,6 +1,6 @@
 # Tux-Dock Development Log
 
-## 0.1-beta
+## 0.1.1-beta
 
 This release establishes the first beta-quality Docker integration and TUI workflow.
 

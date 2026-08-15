@@ -62,18 +62,17 @@ The web report is generated under `/tmp` and includes exact CTest output, test s
 Current TUI actions:
 
 1. Pull Docker Image
-2. Run/Create Interactive Container
+2. Create Container
 3. List All Containers
 4. List All Images
-5. Start Container Interactively (boot new session)
-6. Start Detached Container Session
-7. Delete Docker Image
-8. Stop Container
-9. Remove Container
-10. Attach Shell to Running Container
-11. Run Detached Command in Container
-12. About Tux-Dock
-13. Exit
+5. Start Detached Container Session
+6. Delete Docker Image
+7. Stop Container
+8. Remove Container
+9. Attach Shell to Running Container
+10. Run Detached Command in Container
+11. About Tux-Dock
+12. Exit
 
 ---
 
@@ -120,7 +119,7 @@ ctest --test-dir build --output-on-failure
 
 ## About / Version
 
-- Version: `0.1-beta`
+- Version: `0.1.1-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
 - Forgejo: https://mentalnet.xyz/forgejo-v2/markmental/tuxdock
