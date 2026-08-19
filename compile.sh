@@ -101,7 +101,6 @@ if [ "$run_tests" -eq 1 ]; then
         awk '
             /^[[:space:]]*[0-9]+\/[0-9]+ Test #[0-9]+:/ {
                 test_number = $1
-                sub(/\//, "", test_number)
                 test_name = $3
                 sub(/^#[0-9]+:/, "", test_name)
                 status_field = 0
