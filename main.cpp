@@ -2,6 +2,7 @@
 #include "src/operation_state.hpp"
 
 #include <cctype>
+#include <csignal>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -18,6 +19,53 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+
+namespace {
+
+volatile std::sig_atomic_t g_sigint_busy = 0;
+volatile std::sig_atomic_t g_sigint_trapped = 0;
+bool g_sigint_trap_installed = false;
+struct sigaction g_sigint_previous {};
+
+void TuxDockHandleSigint(int signal_number) {
+    if (g_sigint_busy != 0) {
+        ++g_sigint_trapped;
+        return;
+    }
+    if (g_sigint_trap_installed) {
+        const auto previous_handler = g_sigint_previous.sa_handler;
+        if (previous_handler != nullptr && previous_handler != SIG_DFL) {
+            if (previous_handler != SIG_IGN) previous_handler(signal_number);
+            return;
+        }
+    }
+    std::signal(signal_number, SIG_DFL);
+    std::raise(signal_number);
+}
+
+void InstallSigintTrap() {
+    g_sigint_trapped = 0;
+    g_sigint_busy = 1;
+    if (g_sigint_trap_installed) return;
+    struct sigaction trap {};
+    sigemptyset(&trap.sa_mask);
+    trap.sa_flags = SA_RESTART;
+    trap.sa_handler = TuxDockHandleSigint;
+    if (sigaction(SIGINT, &trap, &g_sigint_previous) == 0) {
+        g_sigint_trap_installed = true;
+    }
+}
+
+void RemoveSigintTrap() {
+    g_sigint_busy = 0;
+    g_sigint_trapped = 0;
+    if (g_sigint_trap_installed) {
+        sigaction(SIGINT, &g_sigint_previous, nullptr);
+        g_sigint_trap_installed = false;
+    }
+}
+
+}
 
 class TuxDockApp {
 public:
@@ -377,6 +425,7 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
     operation_state_.begin(title, message);
     modal_mode_ = ModalMode::Busy;
     spinner_frame_ = 0;
+    InstallSigintTrap();
     auto* active = screen_;
     StartSpinner();
     if (active) active->PostEvent(ftxui::Event::Custom);
@@ -384,6 +433,7 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
         const auto message = action();
         if (active && ftxui::ScreenInteractive::Active() == active) {
             active->Post([this, message] {
+                RemoveSigintTrap();
                 operation_state_.complete(message);
                 StopSpinner();
                 modal_mode_ = ModalMode::None;
@@ -397,6 +447,7 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
 void TuxDockApp::BeginStopOperation(const std::string& id) {
     operation_state_.begin("Stopping container", "Stopping and refreshing state...");
     modal_mode_ = ModalMode::Busy;
+    InstallSigintTrap();
     auto* active = screen_;
     spinner_frame_ = 0;
     StartSpinner();
@@ -407,6 +458,7 @@ void TuxDockApp::BeginStopOperation(const std::string& id) {
         auto images = docker_.getImageList();
         if (!active || ftxui::ScreenInteractive::Active() != active) return;
         active->Post([this, stopped, message, containers = std::move(containers), images = std::move(images)]() mutable {
+            RemoveSigintTrap();
             ApplyRefreshResults(std::move(containers), std::move(images));
             operation_state_.complete(message);
             StopSpinner();
@@ -510,7 +562,7 @@ void TuxDockApp::PromptNextPort(
     }
 
     OpenInput(
-        "Port Mapping", "Enter mapping #" + std::to_string(index + 1),
+        "Port Mapping", "Enter host-to-container port mapping #" + std::to_string(index + 1) + ". e.g: 8080:80.",
         [this, context, index](bool ok, const std::string& value) {
             if (!ok) return;
             if (!IsValidPortMapping(value)) {
@@ -708,11 +760,15 @@ ftxui::Element TuxDockApp::RenderModal() const {
         footer = text("Up/Down: choose   Enter: confirm   Esc: cancel") | dim;
     } else if (modal_mode_ == ModalMode::Busy) {
         static const std::string spinner = "|/-\\";
-        body = vbox(Elements{
+        Elements busy_elements = Elements{
             text(operation_state_.message()),
             separator(),
             text(std::string("                 ") + spinner[spinner_frame_ % spinner.size()]) | bold,
-        });
+        };
+        if (g_sigint_trapped > 0) {
+            busy_elements.push_back(text("Ctrl+C ignored: operation in progress") | dim);
+        }
+        body = vbox(std::move(busy_elements));
         footer = text("Please wait; input is disabled") | dim;
     } else {
         body = (modal_content_ ? std::move(modal_content_) : paragraph(modal_text_)) |
