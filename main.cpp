@@ -24,8 +24,11 @@ namespace {
 
 volatile std::sig_atomic_t g_sigint_busy = 0;
 volatile std::sig_atomic_t g_sigint_trapped = 0;
+volatile std::sig_atomic_t g_sigtstp_trapped = 0;
 bool g_sigint_trap_installed = false;
+bool g_sigtstp_trap_installed = false;
 struct sigaction g_sigint_previous {};
+struct sigaction g_sigtstp_previous {};
 
 void TuxDockHandleSigint(int signal_number) {
     if (g_sigint_busy != 0) {
@@ -43,25 +46,57 @@ void TuxDockHandleSigint(int signal_number) {
     std::raise(signal_number);
 }
 
-void InstallSigintTrap() {
+void TuxDockHandleSigtstp(int signal_number) {
+    if (g_sigint_busy != 0) {
+        ++g_sigtstp_trapped;
+        return;
+    }
+    if (g_sigtstp_trap_installed) {
+        const auto previous_handler = g_sigtstp_previous.sa_handler;
+        if (previous_handler != nullptr && previous_handler != SIG_DFL) {
+            if (previous_handler != SIG_IGN) previous_handler(signal_number);
+            return;
+        }
+    }
+    std::signal(signal_number, SIG_DFL);
+    std::raise(signal_number);
+}
+
+void InstallSignalTraps() {
     g_sigint_trapped = 0;
+    g_sigtstp_trapped = 0;
     g_sigint_busy = 1;
-    if (g_sigint_trap_installed) return;
-    struct sigaction trap {};
-    sigemptyset(&trap.sa_mask);
-    trap.sa_flags = SA_RESTART;
-    trap.sa_handler = TuxDockHandleSigint;
-    if (sigaction(SIGINT, &trap, &g_sigint_previous) == 0) {
-        g_sigint_trap_installed = true;
+    if (!g_sigint_trap_installed) {
+        struct sigaction trap {};
+        sigemptyset(&trap.sa_mask);
+        trap.sa_flags = SA_RESTART;
+        trap.sa_handler = TuxDockHandleSigint;
+        if (sigaction(SIGINT, &trap, &g_sigint_previous) == 0) {
+            g_sigint_trap_installed = true;
+        }
+    }
+    if (!g_sigtstp_trap_installed) {
+        struct sigaction trap {};
+        sigemptyset(&trap.sa_mask);
+        trap.sa_flags = SA_RESTART;
+        trap.sa_handler = TuxDockHandleSigtstp;
+        if (sigaction(SIGTSTP, &trap, &g_sigtstp_previous) == 0) {
+            g_sigtstp_trap_installed = true;
+        }
     }
 }
 
-void RemoveSigintTrap() {
+void RemoveSignalTraps() {
     g_sigint_busy = 0;
     g_sigint_trapped = 0;
+    g_sigtstp_trapped = 0;
     if (g_sigint_trap_installed) {
         sigaction(SIGINT, &g_sigint_previous, nullptr);
         g_sigint_trap_installed = false;
+    }
+    if (g_sigtstp_trap_installed) {
+        sigaction(SIGTSTP, &g_sigtstp_previous, nullptr);
+        g_sigtstp_trap_installed = false;
     }
 }
 
@@ -425,7 +460,7 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
     operation_state_.begin(title, message);
     modal_mode_ = ModalMode::Busy;
     spinner_frame_ = 0;
-    InstallSigintTrap();
+    InstallSignalTraps();
     auto* active = screen_;
     StartSpinner();
     if (active) active->PostEvent(ftxui::Event::Custom);
@@ -433,7 +468,7 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
         const auto message = action();
         if (active && ftxui::ScreenInteractive::Active() == active) {
             active->Post([this, message] {
-                RemoveSigintTrap();
+                RemoveSignalTraps();
                 operation_state_.complete(message);
                 StopSpinner();
                 modal_mode_ = ModalMode::None;
@@ -447,7 +482,7 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
 void TuxDockApp::BeginStopOperation(const std::string& id) {
     operation_state_.begin("Stopping container", "Stopping and refreshing state...");
     modal_mode_ = ModalMode::Busy;
-    InstallSigintTrap();
+    InstallSignalTraps();
     auto* active = screen_;
     spinner_frame_ = 0;
     StartSpinner();
@@ -458,7 +493,7 @@ void TuxDockApp::BeginStopOperation(const std::string& id) {
         auto images = docker_.getImageList();
         if (!active || ftxui::ScreenInteractive::Active() != active) return;
         active->Post([this, stopped, message, containers = std::move(containers), images = std::move(images)]() mutable {
-            RemoveSigintTrap();
+            RemoveSignalTraps();
             ApplyRefreshResults(std::move(containers), std::move(images));
             operation_state_.complete(message);
             StopSpinner();
@@ -664,7 +699,7 @@ void TuxDockApp::ActionExecDetachedCommand() {
 }
 
 void TuxDockApp::ActionAbout() {
-    OpenMessage("About Tux-Dock", "Tux-Dock 0.1.1-beta | Created by markmental");
+    OpenMessage("About Tux-Dock", "Tux-Dock 0.1.2-beta | Created by markmental");
 }
 
 void TuxDockApp::ExecuteSelectedAction() {
@@ -767,6 +802,9 @@ ftxui::Element TuxDockApp::RenderModal() const {
         };
         if (g_sigint_trapped > 0) {
             busy_elements.push_back(text("Ctrl+C ignored: operation in progress") | dim);
+        }
+        if (g_sigtstp_trapped > 0) {
+            busy_elements.push_back(text("Ctrl+Z ignored: operation in progress") | dim);
         }
         body = vbox(std::move(busy_elements));
         footer = text("Please wait; input is disabled") | dim;
