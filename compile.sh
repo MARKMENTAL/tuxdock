@@ -74,6 +74,12 @@ else
     cmake -S . -B build -DBUILD_TESTING=OFF $cmake_args
 fi
 
+command -v gcc >/dev/null 2>&1 || {
+    printf '%s\n' "gcc is required to build tuxreaperd" >&2
+    exit 1
+}
+gcc -O2 -static -Wall -Wextra tuxreaperd.c -o build/tuxreaperd
+
 CMAKE_BUILD_PARALLEL_LEVEL="$build_jobs" cmake --build build
 
 if [ "$run_tests" -eq 1 ]; then
@@ -143,6 +149,19 @@ if [ "$run_tests" -eq 1 ]; then
         awk '!/\[TEST OUTPUT BEGIN\]/ && !/\[TEST OUTPUT END\]/ && !/\[TEST RESULT\]/ { print }' "$integration_output" >"$tui_output"
         escaped_tui=$(mktemp "$report_dir/tui-escaped.XXXXXX")
         sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' "$tui_output" >"$escaped_tui"
+        reaper_output=$(mktemp "$report_dir/reaper-output.XXXXXX")
+        if [ -f "$test_log" ]; then
+            awk '
+                /^[0-9]+\/[0-9]+ Testing: tuxreaperd-zombie-tests$/ { capture=1 }
+                capture { print }
+                /^Test Passed\.$/ && capture { end=1 }
+                end && /time elapsed:/ { print; exit }
+            ' "$test_log" >"$reaper_output"
+        else
+            printf '%s\n' 'tuxreaperd zombie transcript unavailable: LastTest.log was not found.' >"$reaper_output"
+        fi
+        escaped_reaper=$(mktemp "$report_dir/reaper-escaped.XXXXXX")
+        sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' "$reaper_output" >"$escaped_reaper"
         {
             printf '%s\n' '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">'
             printf '%s\n' '<HTML><HEAD><TITLE>Tux-Dock Test Report</TITLE></HEAD><BODY>'
@@ -164,6 +183,8 @@ if [ "$run_tests" -eq 1 ]; then
             cat "$escaped_raw"
             printf '%s\n' '</PRE><H2>TUI Transcript</H2><PRE>'
             cat "$escaped_tui"
+            printf '%s\n' '</PRE><H2>Tuxreaperd Zombie Reaping</H2><PRE>'
+            cat "$escaped_reaper"
             printf '%s\n' '</PRE></BODY></HTML>'
         } >"$report"
 

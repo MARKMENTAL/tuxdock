@@ -18,6 +18,7 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 - Direct `fork`/`exec` process execution for CLI-backed streaming and interactive commands.
 - Persistent container listings that retain exited containers.
 - Robust stop handling with state polling, timeout retry, and idempotent stop responses.
+- `tuxreaperd` micro init system: a tiny statically-linked C daemon mounted into created containers as PID 1, acting as a subreaper so orphaned processes never linger as zombies, forwarding signals, and propagating exit status.
 - About screen in-app with project/version/repository info.
 
 ---
@@ -53,7 +54,9 @@ sudo ./build/tux-dock
 ./compile.sh --web-test-view 9000
 ```
 
-The web report is generated under `/tmp` and includes exact CTest output, test summaries, Docker integration output, and a text rendition of the TUI flow. It requires `nc`, `netcat`, or Nmap's `ncat`; press `Ctrl-C` to stop the server. The default port is `8095`; pass a port after `--web-test-view` to override it. `--web-test-view --no-test` is invalid. Normal test runs include a Docker integration test using `debian:forky`, so Docker must be available. On systems with 1 GB or less of available memory, the script automatically uses a smaller build configuration and a single build job.
+`compile.sh` also statically builds the `tuxreaperd` micro init (`gcc -O2 -static -Wall -Wextra tuxreaperd.c -o build/tuxreaperd`) so containers can be created with it as PID 1.
+
+The web report is generated under `/tmp` and includes exact CTest output, test summaries, Docker integration output, a text rendition of the TUI flow, and the tuxreaperd zombie-reaping results. It requires `nc`, `netcat`, or Nmap's `ncat`; press `Ctrl-C` to stop the server. The default port is `8095`; pass a port after `--web-test-view` to override it. `--web-test-view --no-test` is invalid. Normal test runs include a Docker integration test using `debian:forky`, so Docker must be available. On systems with 1 GB or less of available memory, the script automatically uses a smaller build configuration and a single build job.
 
 ---
 
@@ -113,13 +116,13 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-`compile.sh` runs these tests by default. Pass `--no-test` to skip them.
+`compile.sh` runs these tests by default. Pass `--no-test` to skip them. The suite includes `tuxreaperd-zombie-tests`, which boots a container with `tuxreaperd` as PID 1 and verifies orphaned processes are reaped (no zombies), exit status propagates, and SIGTERM is forwarded on `docker stop`. Docker must be available.
 
 ---
 
 ## About / Version
 
-- Version: `0.1.2-beta`
+- Version: `0.2-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
 - Forgejo: https://mentalnet.xyz/forgejo-v2/markmental/tuxdock

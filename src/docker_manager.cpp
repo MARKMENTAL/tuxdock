@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <system_error>
 
 #include <nlohmann/json.hpp>
 
@@ -97,14 +98,42 @@ bool DockerManager::createContainer(const std::string& name,
         message = "Please provide a container name and choose an image first.";
         return false;
     }
+
+    // Resolve host path to tuxreaperd binary: prefer the current directory,
+    // then fall back to the directory holding the tux-dock executable
+    // (e.g. build/tuxreaperd next to build/tux-dock).
+    std::filesystem::path hostReaperPath = std::filesystem::current_path() / "tuxreaperd";
+    if (!std::filesystem::exists(hostReaperPath)) {
+        std::error_code ec;
+        const auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (!ec) {
+            hostReaperPath = exe.parent_path() / "tuxreaperd";
+        }
+    }
+    if (!std::filesystem::exists(hostReaperPath)) {
+        message = "Failed to create container: tuxreaperd binary not found in the current directory or next to the tux-dock executable.";
+        return false;
+    }
+
     std::vector<std::string> args{"docker", "create", "--name", name};
+
+    // Port mappings
     for (const auto& port : ports) {
         args.push_back("-p");
         args.push_back(port);
     }
-    args.insert(args.end(), {image, "sleep", "infinity"});
+
+    // Mount host tuxreaperd into container target path (read-only for security)
+    args.push_back("-v");
+    args.push_back(hostReaperPath.string() + ":/usr/local/bin/tuxreaperd:ro");
+
+    // Target image and entry command with tuxreaperd as PID 1
+    args.insert(args.end(), {image, "/usr/local/bin/tuxreaperd", "sleep", "infinity"});
+
     const bool ok = runProcess(args, message);
-    if (ok) message = "Container created and ready to start when you are ready.";
+    if (ok) {
+        message = "Container created with tuxreaperd PID 1 supervisor and ready to start.";
+    }
     return ok;
 }
 

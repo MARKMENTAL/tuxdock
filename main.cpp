@@ -699,7 +699,7 @@ void TuxDockApp::ActionExecDetachedCommand() {
 }
 
 void TuxDockApp::ActionAbout() {
-    OpenMessage("About Tux-Dock", "Tux-Dock 0.1.2-beta | Created by markmental");
+    OpenMessage("About Tux-Dock", "Tux-Dock 0.2-beta | Created by markmental");
 }
 
 void TuxDockApp::ExecuteSelectedAction() {
