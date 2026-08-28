@@ -6,6 +6,14 @@ struct k_sigaction {
 };
 
 #if defined(__x86_64__)
+#define SA_RESTORER_FLAG 0x04000000UL
+void restore_rt(void);
+#elif defined(__aarch64__)
+#define SA_RESTORER_FLAG 0UL
+#define restore_rt ((void (*)(void))0)
+#endif
+
+#if defined(__x86_64__)
 
 static inline long sys_write(int fd, const void *buf, long n) {
     long ret;
@@ -120,6 +128,51 @@ static inline long sys_rt_sigsuspend(const unsigned long *mask, unsigned long si
         "syscall"
         : "=a"(ret)
         : "a"(130), "D"(mask), "S"(sigsetsize)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline long sys_openat(int dirfd, const char *path, int flags, int mode) {
+    long ret;
+    register long r10 __asm__("r10") = mode;
+    __asm__ volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(257), "D"((long)dirfd), "S"(path), "d"(flags), "r"(r10)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline long sys_getdents64(int fd, void *dirp, unsigned int count) {
+    long ret;
+    __asm__ volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(217), "D"((long)fd), "S"(dirp), "d"(count)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline long sys_readlink(const char *path, char *buf, long bufsiz) {
+    long ret;
+    __asm__ volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(89), "D"(path), "S"(buf), "d"(bufsiz)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline long sys_close(int fd) {
+    long ret;
+    __asm__ volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(3), "D"((long)fd)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -299,13 +352,62 @@ static inline long sys_rt_sigsuspend(const unsigned long *mask, unsigned long si
     return x0;
 }
 
-__asm__(
-    ".text\n"
-    ".globl restore_rt\n"
-    "restore_rt:\n"
-    "    mov x8, #139\n"
-    "    svc #0\n"
-);
+static inline long sys_openat(int dirfd, const char *path, int flags, int mode) {
+    register long x8 __asm__("x8") = 56;
+    register long x0 __asm__("x0") = dirfd;
+    register long x1 __asm__("x1") = (long)path;
+    register long x2 __asm__("x2") = flags;
+    register long x3 __asm__("x3") = mode;
+    __asm__ volatile (
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8), "r"(x1), "r"(x2), "r"(x3)
+        : "memory", "cc"
+    );
+    return x0;
+}
+
+static inline long sys_getdents64(int fd, void *dirp, unsigned int count) {
+    register long x8 __asm__("x8") = 61;
+    register long x0 __asm__("x0") = fd;
+    register long x1 __asm__("x1") = (long)dirp;
+    register long x2 __asm__("x2") = count;
+    __asm__ volatile (
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8), "r"(x1), "r"(x2)
+        : "memory", "cc"
+    );
+    return x0;
+}
+
+static inline long sys_readlink(const char *path, char *buf, long bufsiz) {
+    /* AArch64 has no plain readlink syscall; readlinkat is the ABI. */
+    register long x8 __asm__("x8") = 78;   /* __NR_readlinkat */
+    register long x0 __asm__("x0") = -100; /* AT_FDCWD */
+    register long x1 __asm__("x1") = (long)path;
+    register long x2 __asm__("x2") = (long)buf;
+    register long x3 __asm__("x3") = bufsiz;
+    __asm__ volatile (
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8), "r"(x1), "r"(x2), "r"(x3)
+        : "memory", "cc"
+    );
+    return x0;
+}
+
+static inline long sys_close(int fd) {
+    register long x8 __asm__("x8") = 57;
+    register long x0 __asm__("x0") = fd;
+    __asm__ volatile (
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x8)
+        : "memory", "cc"
+    );
+    return x0;
+}
 
 __asm__(
     ".text\n"
@@ -398,14 +500,120 @@ static void my_execvp(const char *file, char *const argv[], char *const envp[]) 
     }
 }
 
+/* Apache hijacks SIGWINCH (window resize) for graceful shutdown. Yes,
+   really. So when the outside world sends SIGTERM, we have to translate
+   it to SIGWINCH for anything whose /proc/<pid>/exe smells like apache2.
+   This is insane, but Apache is a good web server so I give it a pass. */
+static const char * const apache_exes[] = {
+    "/usr/sbin/apache2",
+    "/usr/sbin/httpd",
+    "/usr/local/apache2/bin/httpd",
+    0
+};
+#define APACHE_IN_SIG  15   /* SIGTERM */
+#define APACHE_OUT_SIG 28   /* SIGWINCH */
+
+#define AT_FDCWD       -100
+#define O_RDONLY       0
+#define O_DIRECTORY    00200000
+
+struct linux_dirent64 {
+    unsigned long long d_ino;
+    long long          d_off;
+    unsigned short     d_reclen;
+    unsigned char      d_type;
+    char               d_name[];
+};
+
+static int my_strcmp(const char *a, const char *b) {
+    while (*a && (*a == *b)) {
+        a++;
+        b++;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+static int is_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+static long parse_pid(const char *s) {
+    long pid = 0;
+    while (*s) {
+        if (!is_digit(*s)) return -1;
+        pid = pid * 10 + (*s - '0');
+        s++;
+    }
+    return pid;
+}
+
+/* Iterate /proc, read each process's /proc/<pid>/exe symlink, and send
+   out_sig to matching process groups while sending in_sig to everyone
+   else. Skip PID 1 (the reaper itself). */
+static void proc_remap_signal(int in_sig, int out_sig, const char *const *target_exes) {
+    int procfd = (int)sys_openat(AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY, 0);
+    if (procfd < 0) return;
+
+    char dirbuf[4096];
+
+    for (;;) {
+        long n = sys_getdents64(procfd, dirbuf, sizeof(dirbuf));
+        if (n <= 0) break;
+
+        for (long pos = 0; pos < n;) {
+            struct linux_dirent64 *de = (struct linux_dirent64 *)(dirbuf + pos);
+            pos += de->d_reclen;
+
+            const char *name = de->d_name;
+            if (name[0] == '.') continue;
+
+            long pid = parse_pid(name);
+            if (pid <= 1) continue;
+
+            char path[32];
+            char *p = path;
+            const char *prefix = "/proc/";
+            for (long i = 0; prefix[i]; i++) *p++ = prefix[i];
+            const char *np = name;
+            while (*np) *p++ = *np++;
+            const char *suffix = "/exe";
+            for (long i = 0; suffix[i]; i++) *p++ = suffix[i];
+            *p = '\0';
+
+            char linkbuf[256];
+            long linklen = sys_readlink(path, linkbuf, sizeof(linkbuf) - 1);
+            if (linklen <= 0) continue;
+            linkbuf[linklen] = '\0';
+
+            int matched = 0;
+            for (int i = 0; target_exes[i]; i++) {
+                long target_len = my_strlen(target_exes[i]);
+                if (linklen == target_len && my_strcmp(linkbuf, target_exes[i]) == 0) {
+                    matched = 1;
+                    break;
+                }
+            }
+
+            if (matched) {
+                sys_kill(pid, out_sig);
+            } else {
+                sys_kill(pid, in_sig);
+            }
+        }
+    }
+
+    sys_close(procfd);
+}
+
 static volatile long g_main_child = 0;
 static volatile int g_child_exited = 0;
 static volatile int g_main_status = 0;
+static volatile int g_pending_signal = 0;
 
-static void forward_sig(int sig) {
-    if (g_main_child > 0) {
-        sys_kill(g_main_child, sig);
-    }
+static void proxy_sig_handler(int sig) {
+    /* Just record the signal; the main loop does the /proc scan so we
+       stay async-signal-safe here. */
+    g_pending_signal = sig;
 }
 
 static void sigchld_handler(int sig) {
@@ -426,8 +634,6 @@ static void sigchld_handler(int sig) {
 #define WIFSIGNALED(s) ((((s) & 0x7f) != 0) && (((s) & 0x7f) != 0x7f))
 #define WTERMSIG(s)    ((s) & 0x7f)
 
-void restore_rt(void);
-
 int main(int argc, char **argv, char **envp) {
     if (argc < 2) {
         static const char usage[] = "Usage: tuxreaperd <command> [args...]\n";
@@ -443,22 +649,30 @@ int main(int argc, char **argv, char **envp) {
 
     struct k_sigaction sa;
     sa.handler = sigchld_handler;
-    sa.flags = 0x10000000 /* SA_RESTART */ | 1 /* SA_NOCLDSTOP */ | 0x04000000 /* SA_RESTORER */;
+    sa.flags = 0x10000000 /* SA_RESTART */ | 1 /* SA_NOCLDSTOP */ | SA_RESTORER_FLAG;
     sa.restorer = restore_rt;
     sa.mask = 0;
     sys_rt_sigaction(17 /* SIGCHLD */, &sa, 0, sizeof(sa.mask));
 
-    sa.handler = forward_sig;
-    sa.flags = 0x10000000 /* SA_RESTART */ | 0x04000000 /* SA_RESTORER */;
+    sa.handler = proxy_sig_handler;
+    sa.flags = 0x10000000 /* SA_RESTART */ | SA_RESTORER_FLAG;
     sa.restorer = restore_rt;
     sa.mask = 0;
     sys_rt_sigaction(15 /* SIGTERM */, &sa, 0, sizeof(sa.mask));
+    sys_rt_sigaction(3 /* SIGQUIT */, &sa, 0, sizeof(sa.mask));
     sys_rt_sigaction(2 /* SIGINT */, &sa, 0, sizeof(sa.mask));
     sys_rt_sigaction(1 /* SIGHUP */, &sa, 0, sizeof(sa.mask));
+    sys_rt_sigaction(10 /* SIGUSR1 */, &sa, 0, sizeof(sa.mask));
+    sys_rt_sigaction(12 /* SIGUSR2 */, &sa, 0, sizeof(sa.mask));
 
     unsigned long block_mask =
-        (1UL << (17 - 1)) | (1UL << (15 - 1)) |
-        (1UL << (2 - 1))  | (1UL << (1 - 1));
+        (1UL << (17 - 1)) | /* SIGCHLD */
+        (1UL << (15 - 1)) | /* SIGTERM */
+        (1UL << (3 - 1))  | /* SIGQUIT */
+        (1UL << (2 - 1))  | /* SIGINT */
+        (1UL << (1 - 1))  | /* SIGHUP */
+        (1UL << (10 - 1)) | /* SIGUSR1 */
+        (1UL << (12 - 1));  /* SIGUSR2 */
     unsigned long old_mask;
     sys_rt_sigprocmask(0 /* SIG_BLOCK */, &block_mask, &old_mask, sizeof(block_mask));
 
@@ -473,6 +687,17 @@ int main(int argc, char **argv, char **envp) {
 
     while (!g_child_exited) {
         sys_rt_sigsuspend(&old_mask, sizeof(old_mask));
+
+        if (g_pending_signal != 0) {
+            int sig = g_pending_signal;
+            g_pending_signal = 0;
+            if (sig == APACHE_IN_SIG) {
+                proc_remap_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
+            } else {
+                /* Unmapped signals get the old broadcast treatment. */
+                sys_kill(-1, sig);
+            }
+        }
     }
 
     int status;

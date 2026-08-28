@@ -1,15 +1,31 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
+#include <dirent.h>
 #include <errno.h>
+
+/* Apache hijacks SIGWINCH (window resize) for graceful shutdown. Yes,
+   really. So when the outside world sends SIGTERM, we have to translate
+   it to SIGWINCH for anything whose /proc/<pid>/exe smells like apache2.
+   This is insane, but Apache is a good web server so I give it a pass. */
+static const char * const apache_exes[] = {
+    "/usr/sbin/apache2",
+    "/usr/sbin/httpd",
+    "/usr/local/apache2/bin/httpd",
+    0
+};
+#define APACHE_IN_SIG  SIGTERM
+#define APACHE_OUT_SIG SIGWINCH
 
 static volatile pid_t g_main_child = 0;
 static volatile sig_atomic_t g_child_exited = 0;
 static volatile int g_main_status = 0;
+static volatile sig_atomic_t g_pending_signal = 0;
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -25,10 +41,50 @@ static void sigchld_handler(int sig) {
     }
 }
 
-static void forward_signal(int sig) {
-    if (g_main_child > 0) {
-        kill(g_main_child, sig);
+static void proxy_signal_handler(int sig) {
+    // Just record the signal; the main loop does the /proc scan so we
+    // stay async-signal-safe here.
+    g_pending_signal = sig;
+}
+
+static void proc_remap_signal(int in_sig, int out_sig, const char *const *target_exes) {
+    DIR *proc = opendir("/proc");
+    if (!proc) return;
+
+    struct dirent *de;
+
+    while ((de = readdir(proc)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+
+        char *endptr;
+        long pid = strtol(de->d_name, &endptr, 10);
+        if (*endptr != '\0' || pid <= 1) continue;
+
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%ld/exe", pid);
+
+        char linkbuf[256];
+        ssize_t linklen = readlink(path, linkbuf, sizeof(linkbuf) - 1);
+        if (linklen <= 0) continue;
+        linkbuf[linklen] = '\0';
+
+        int matched = 0;
+        for (int i = 0; target_exes[i]; i++) {
+            size_t target_len = strlen(target_exes[i]);
+            if ((size_t)linklen == target_len && strcmp(linkbuf, target_exes[i]) == 0) {
+                matched = 1;
+                break;
+            }
+        }
+
+        if (matched) {
+            kill(pid, out_sig);
+        } else {
+            kill(pid, in_sig);
+        }
     }
+
+    closedir(proc);
 }
 
 int main(int argc, char *argv[]) {
@@ -45,12 +101,15 @@ int main(int argc, char *argv[]) {
 
     // Set up signal forwarding
     struct sigaction sa_forward;
-    sa_forward.sa_handler = forward_signal;
+    sa_forward.sa_handler = proxy_signal_handler;
     sigemptyset(&sa_forward.sa_mask);
     sa_forward.sa_flags = SA_RESTART;
     sigaction(SIGTERM, &sa_forward, NULL);
+    sigaction(SIGQUIT, &sa_forward, NULL);
     sigaction(SIGINT, &sa_forward, NULL);
     sigaction(SIGHUP, &sa_forward, NULL);
+    sigaction(SIGUSR1, &sa_forward, NULL);
+    sigaction(SIGUSR2, &sa_forward, NULL);
 
     // Set up SIGCHLD reaper handler
     struct sigaction sa_chld;
@@ -64,8 +123,11 @@ int main(int argc, char *argv[]) {
     sigemptyset(&block_mask);
     sigaddset(&block_mask, SIGCHLD);
     sigaddset(&block_mask, SIGTERM);
+    sigaddset(&block_mask, SIGQUIT);
     sigaddset(&block_mask, SIGINT);
     sigaddset(&block_mask, SIGHUP);
+    sigaddset(&block_mask, SIGUSR1);
+    sigaddset(&block_mask, SIGUSR2);
     sigprocmask(SIG_BLOCK, &block_mask, &old_mask);
 
     // Spawn the primary workload
@@ -85,6 +147,17 @@ int main(int argc, char *argv[]) {
     // Block until the primary process exits
     while (!g_child_exited) {
         sigsuspend(&old_mask);
+
+        if (g_pending_signal != 0) {
+            int sig = g_pending_signal;
+            g_pending_signal = 0;
+            if (sig == APACHE_IN_SIG) {
+                proc_remap_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
+            } else {
+                // Unmapped signals get the old broadcast treatment.
+                kill(-1, sig);
+            }
+        }
     }
 
     // Final sweep of any remaining lingering zombies

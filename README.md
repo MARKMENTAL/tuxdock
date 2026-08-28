@@ -18,7 +18,7 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 - Direct `fork`/`exec` process execution for CLI-backed streaming and interactive commands.
 - Persistent container listings that retain exited containers.
 - Robust stop handling with state polling, timeout retry, and idempotent stop responses.
-- `tuxreaperd` micro init system: a tiny statically-linked C daemon mounted into created containers as PID 1, acting as a subreaper so orphaned processes never linger as zombies, forwarding signals, and propagating exit status.
+- `tuxreaperd` micro init system: a tiny statically-linked C daemon mounted into created containers as PID 1, acting as a subreaper so orphaned processes never linger as zombies, broadcasting lifecycle signals (SIGTERM, SIGQUIT, SIGINT, SIGHUP, SIGUSR1, SIGUSR2) to the whole process tree via `kill(-1, sig)`, and propagating exit status. [Processes don't fear tuxreaperd!](tuxreaperdpromo.jpg)
 - About screen in-app with project/version/repository info.
 
 ---
