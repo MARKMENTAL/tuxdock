@@ -99,5 +99,5 @@ if(BUILD_TESTING)
   add_test(NAME tuxreaperd-zombie-tests
            COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tuxreaperd.sh
                    ${CMAKE_CURRENT_BINARY_DIR}/tuxreaperd
-                   ${CMAKE_CURRENT_SOURCE_DIR}/tuxreaperd.c)
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tuxreaperdgnu.c)
 endif()

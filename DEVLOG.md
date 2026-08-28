@@ -6,10 +6,12 @@ This release introduces `tuxreaperd`, a micro init system for containers.
 
 ### Micro init
 
-- Added `tuxreaperd.c`, a small C daemon used as PID 1 inside containers created by tux-dock.
-- Runs as a subreaper (`PR_SET_CHILD_SUBREAPER`) with a SIGCHLD handler that reaps every reparented/terminated descendant, so orphaned processes never accumulate as zombies.
-- Forwards SIGTERM/SIGINT/SIGHUP to the primary workload and propagates its exit status (128 + signal for signal deaths).
-- `compile.sh` statically builds it (`gcc -O2 -static -Wall -Wextra tuxreaperd.c -o build/tuxreaperd`) alongside the rest of the tree.
+- Split the reaper into two implementations:
+  - `tuxreaperdgnu.c`: the original standard POSIX/libc daemon used as PID 1 inside containers created by tux-dock.
+  - `tuxreaperdasm.c`: a new freestanding `-nostdlib` syscall engine for `x86_64` and `aarch64` with a tiny static footprint.
+- Both run as subreapers (`PR_SET_CHILD_SUBREAPER`) with a SIGCHLD handler that reaps every reparented/terminated descendant, so orphaned processes never accumulate as zombies.
+- Both forward SIGTERM/SIGINT/SIGHUP to the primary workload and propagate its exit status (128 + signal for signal deaths).
+- `compile.sh` detects the host architecture and builds the freestanding implementation when possible, falling back to `tuxreaperdgnu.c` on failure or unsupported hosts.
 - `DockerManager::createContainer` bind-mounts `tuxreaperd` into the container as PID 1 and resolves the binary next to the `tux-dock` executable when it is not in the current directory.
 
 ### Tests

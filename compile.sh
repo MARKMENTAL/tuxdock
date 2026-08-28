@@ -78,7 +78,28 @@ command -v gcc >/dev/null 2>&1 || {
     printf '%s\n' "gcc is required to build tuxreaperd" >&2
     exit 1
 }
-gcc -O2 -static -Wall -Wextra tuxreaperd.c -o build/tuxreaperd
+
+host_arch=$(uname -m)
+asm_archs='x86_64 amd64 aarch64 arm64'
+build_tuxreaperd() {
+    case " $asm_archs " in
+        *" $host_arch "*)
+            printf '%s\n' "[compile] Building freestanding tuxreaperd for $host_arch"
+            if gcc -nostdlib -static -fno-stack-protector -fno-asynchronous-unwind-tables \
+                   -fno-builtin -O2 -s -Wl,--build-id=none -Wl,-z,noseparate-code \
+                   -Wall -Wextra tuxreaperdasm.c -o build/tuxreaperd 2>/tmp/tuxreaperd-asm-build.log; then
+                printf '%s\n' "[compile] Freestanding tuxreaperd built successfully"
+                return 0
+            fi
+            printf '%s\n' "[compile] Freestanding build failed, falling back to libc implementation" >&2
+            cat /tmp/tuxreaperd-asm-build.log >&2
+            ;;
+    esac
+
+    printf '%s\n' "[compile] Building standard tuxreaperd for $host_arch"
+    gcc -O2 -static -Wall -Wextra tuxreaperdgnu.c -o build/tuxreaperd
+}
+build_tuxreaperd
 
 CMAKE_BUILD_PARALLEL_LEVEL="$build_jobs" cmake --build build
 
