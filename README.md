@@ -52,9 +52,12 @@ sudo ./build/tux-dock
 
 # Override the report server port
 ./compile.sh --web-test-view 9000
+
+# Force the libc-based tuxreaperd implementation
+./compile.sh --force-libc-reaper
 ```
 
-`compile.sh` builds the `tuxreaperd` micro init before the main project. On supported hosts (`x86_64`/`amd64`/`aarch64`/`arm64`) it first tries the freestanding syscall implementation in `tuxreaperdasm.c`; on other architectures, or if the freestanding build fails, it falls back to the standard POSIX implementation in `tuxreaperdgnu.c`.
+`compile.sh` builds the `tuxreaperd` micro init before the main project. On supported hosts (`x86_64`/`amd64`/`aarch64`/`arm64`) it first tries the freestanding syscall implementation in `tuxreaperdasm.c`; on other architectures, or if the freestanding build fails, it falls back to the standard POSIX implementation in `tuxreaperdgnu.c`. Pass `--force-libc-reaper` to skip the freestanding build and use the libc implementation directly.
 
 The web report is generated under `/tmp` and includes exact CTest output, test summaries, Docker integration output, a text rendition of the TUI flow, and the tuxreaperd zombie-reaping results. It requires `nc`, `netcat`, or Nmap's `ncat`; press `Ctrl-C` to stop the server. The default port is `8095`; pass a port after `--web-test-view` to override it. `--web-test-view --no-test` is invalid. Normal test runs include a Docker integration test using `debian:forky`, so Docker must be available. On systems with 1 GB or less of available memory, the script automatically uses a smaller build configuration and a single build job.
 
@@ -122,7 +125,7 @@ ctest --test-dir build --output-on-failure
 
 ## About / Version
 
-- Version: `0.2-beta`
+- Version: `0.3-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
 - Forgejo: https://mentalnet.xyz/forgejo-v2/markmental/tuxdock

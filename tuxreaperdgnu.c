@@ -59,6 +59,15 @@ int main(int argc, char *argv[]) {
     sa_chld.sa_flags = SA_RESTART | SA_NOCLDSTOP;
     sigaction(SIGCHLD, &sa_chld, NULL);
 
+    // Block the signals we wait on so the check/suspend loop is race-free
+    sigset_t block_mask, old_mask;
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, SIGCHLD);
+    sigaddset(&block_mask, SIGTERM);
+    sigaddset(&block_mask, SIGINT);
+    sigaddset(&block_mask, SIGHUP);
+    sigprocmask(SIG_BLOCK, &block_mask, &old_mask);
+
     // Spawn the primary workload
     g_main_child = fork();
     if (g_main_child < 0) {
@@ -67,6 +76,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_main_child == 0) {
+        sigprocmask(SIG_SETMASK, &old_mask, NULL);
         execvp(argv[1], &argv[1]);
         perror("execvp");
         _exit(127);
@@ -74,7 +84,7 @@ int main(int argc, char *argv[]) {
 
     // Block until the primary process exits
     while (!g_child_exited) {
-        pause();
+        sigsuspend(&old_mask);
     }
 
     // Final sweep of any remaining lingering zombies

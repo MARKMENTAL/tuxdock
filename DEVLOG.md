@@ -1,6 +1,6 @@
 # Tux-Dock Development Log
 
-## 0.2-beta
+## 0.3-beta
 
 This release introduces `tuxreaperd`, a micro init system for containers.
 

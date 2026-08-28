@@ -5,6 +5,7 @@ set -eu
 run_tests=1
 web_view=0
 web_port=8095
+force_libc_reaper=0
 
 memory_limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
 if [ -z "$memory_limit" ] || [ "$memory_limit" = max ]; then
@@ -44,8 +45,9 @@ while [ "$#" -gt 0 ]; do
                 shift
             fi
             ;;
+        --force-libc-reaper) force_libc_reaper=1 ;;
         *)
-            printf '%s\n' "Usage: $0 [--no-test] [--web-test-view [port]]" >&2
+            printf '%s\n' "Usage: $0 [--no-test] [--web-test-view [port]] [--force-libc-reaper]" >&2
             exit 2
             ;;
     esac
@@ -81,18 +83,24 @@ command -v gcc >/dev/null 2>&1 || {
 
 host_arch=$(uname -m)
 asm_archs='x86_64 amd64 aarch64 arm64'
+page_size=$(getconf PAGE_SIZE 2>/dev/null || printf '%s\n' 4096)
 build_tuxreaperd() {
     case " $asm_archs " in
         *" $host_arch "*)
-            printf '%s\n' "[compile] Building freestanding tuxreaperd for $host_arch"
-            if gcc -nostdlib -static -fno-stack-protector -fno-asynchronous-unwind-tables \
-                   -fno-builtin -O2 -s -Wl,--build-id=none -Wl,-z,noseparate-code \
-                   -Wall -Wextra tuxreaperdasm.c -o build/tuxreaperd 2>/tmp/tuxreaperd-asm-build.log; then
-                printf '%s\n' "[compile] Freestanding tuxreaperd built successfully"
-                return 0
+            if [ "$force_libc_reaper" -eq 0 ]; then
+                printf '%s\n' "[compile] Building freestanding tuxreaperd for $host_arch"
+                if gcc -nostdlib -static -fno-stack-protector -fno-asynchronous-unwind-tables \
+                       -fno-builtin -O2 -s -Wl,--build-id=none -Wl,-z,noseparate-code \
+                       -Wl,-z,max-page-size=${page_size} \
+                       -Wall -Wextra tuxreaperdasm.c -o build/tuxreaperd 2>/tmp/tuxreaperd-asm-build.log; then
+                    printf '%s\n' "[compile] Freestanding tuxreaperd built successfully"
+                    return 0
+                fi
+                printf '%s\n' "[compile] Freestanding build failed, falling back to libc implementation" >&2
+                cat /tmp/tuxreaperd-asm-build.log >&2
+            else
+                printf '%s\n' "[compile] --force-libc-reaper set, building libc tuxreaperd"
             fi
-            printf '%s\n' "[compile] Freestanding build failed, falling back to libc implementation" >&2
-            cat /tmp/tuxreaperd-asm-build.log >&2
             ;;
     esac
 
