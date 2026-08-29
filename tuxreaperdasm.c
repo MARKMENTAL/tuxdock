@@ -1,3 +1,8 @@
+struct timespec {
+    long tv_sec;
+    long tv_nsec;
+};
+
 struct k_sigaction {
     void (*handler)(int);
     unsigned long flags;
@@ -183,7 +188,30 @@ static inline long sys_close(int fd) {
     __asm__ volatile (
         "syscall"
         : "=a"(ret)
-        : "a"(3), "D"((long)fd)
+        : "a"(3), "D"(fd)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline long sys_clock_gettime(int clk_id, struct timespec *tp) {
+    long ret;
+    register long r10 __asm__("r10") = 0;
+    __asm__ volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(228), "D"((long)clk_id), "S"(tp), "r"(r10)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline long sys_nanosleep(const struct timespec *req, struct timespec *rem) {
+    long ret;
+    __asm__ volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(35), "D"(req), "S"(rem)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -433,6 +461,32 @@ static inline long sys_close(int fd) {
     return x0;
 }
 
+static inline long sys_clock_gettime(int clk_id, struct timespec *tp) {
+    register long x0 __asm__("x0") = (long)clk_id;
+    register long x1 __asm__("x1") = (long)tp;
+    register long x8 __asm__("x8") = 113;  /* __NR_clock_gettime */
+    __asm__ volatile (
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x1), "r"(x8)
+        : "memory", "cc"
+    );
+    return x0;
+}
+
+static inline long sys_nanosleep(const struct timespec *req, struct timespec *rem) {
+    register long x0 __asm__("x0") = (long)req;
+    register long x1 __asm__("x1") = (long)rem;
+    register long x8 __asm__("x8") = 101;  /* __NR_nanosleep */
+    __asm__ volatile (
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x1), "r"(x8)
+        : "memory", "cc"
+    );
+    return x0;
+}
+
 __asm__(
     ".text\n"
     ".globl _start\n"
@@ -524,10 +578,9 @@ static void my_execvp(const char *file, char *const argv[], char *const envp[]) 
     }
 }
 
-/* Apache hijacks SIGWINCH (window resize) for graceful shutdown. Yes,
-   really. So when the outside world sends SIGTERM, we have to translate
-   it to SIGWINCH for anything whose /proc/<pid>/exe smells like apache2.
-   This is insane, but Apache is a good web server so I give it a pass. */
+/* Apache hijacks SIGWINCH for graceful shutdown. When the outside world
+   sends SIGTERM, we translate it to SIGWINCH for Apache processes and send
+   the original signal to everyone else. */
 static const char * const apache_exes[] = {
     "/usr/sbin/apache2",
     "/usr/sbin/httpd",
@@ -536,6 +589,9 @@ static const char * const apache_exes[] = {
 };
 #define APACHE_IN_SIG  15   /* SIGTERM */
 #define APACHE_OUT_SIG 28   /* SIGWINCH */
+
+#define DESCENDANT_TIMEOUT_SECONDS 60
+#define BROADCAST_SCAN_DELAY_US     100000
 
 #define AT_FDCWD       -100
 #define O_RDONLY       0
@@ -548,6 +604,42 @@ struct linux_dirent64 {
     unsigned char      d_type;
     char               d_name[];
 };
+
+#ifdef TUXREAPERD_DEBUG
+static void debug_write(const char *s) {
+    sys_write(2, s, my_strlen(s));
+}
+
+static void debug_write_int(long n) {
+    char buf[32];
+    int i = 0;
+    if (n < 0) {
+        buf[i++] = '-';
+        n = -n;
+    }
+    int start = i;
+    do {
+        buf[i++] = '0' + (n % 10);
+        n /= 10;
+    } while (n > 0);
+    for (int j = start, k = i - 1; j < k; j++, k--) {
+        char tmp = buf[j];
+        buf[j] = buf[k];
+        buf[k] = tmp;
+    }
+    sys_write(2, buf, i);
+}
+
+static void debug_msg(const char *msg) {
+    debug_write("[tuxreaperd] ");
+    debug_write(msg);
+    debug_write("\n");
+}
+#else
+static void debug_write(const char *s) { (void)s; }
+static void debug_write_int(long n) { (void)n; }
+static void debug_msg(const char *msg) { (void)msg; }
+#endif
 
 static int my_strcmp(const char *a, const char *b) {
     while (*a && (*a == *b)) {
@@ -572,11 +664,14 @@ static long parse_pid(const char *s) {
 }
 
 /* Iterate /proc, read each process's /proc/<pid>/exe symlink, and send
-   out_sig to matching process groups while sending in_sig to everyone
-   else. Skip PID 1 (the reaper itself). */
+   out_sig to matching PIDs while sending in_sig to everyone else.
+   Skip PID 1 (the reaper itself). */
 static void proc_remap_signal(int in_sig, int out_sig, const char *const *target_exes) {
     int procfd = (int)sys_openat(AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY, 0);
-    if (procfd < 0) return;
+    if (procfd < 0) {
+        debug_msg("opendir(/proc) failed");
+        return;
+    }
 
     char dirbuf[4096];
 
@@ -618,26 +713,88 @@ static void proc_remap_signal(int in_sig, int out_sig, const char *const *target
                 }
             }
 
-            if (matched) {
-                sys_kill(pid, out_sig);
-            } else {
-                sys_kill(pid, in_sig);
-            }
+            int sent_sig = matched ? out_sig : in_sig;
+#ifdef TUXREAPERD_DEBUG
+            debug_write("[tuxreaperd] scan pid=");
+            debug_write_int(pid);
+            debug_write(" exe=");
+            debug_write(linkbuf);
+            debug_write(" matched=");
+            debug_write_int(matched);
+            debug_write(" sig=");
+            debug_write_int(sent_sig);
+            debug_write("\n");
+#endif
+            sys_kill(pid, sent_sig);
         }
     }
 
     sys_close(procfd);
 }
 
+static void sleep_us(long us) {
+    struct timespec req;
+    req.tv_sec = us / 1000000;
+    req.tv_nsec = (us % 1000000) * 1000;
+    sys_nanosleep(&req, 0);
+}
+
+static void broadcast_signal(int in_sig, int out_sig, const char *const *target_exes) {
+#ifdef TUXREAPERD_DEBUG
+    debug_write("[tuxreaperd] broadcasting in_sig=");
+    debug_write_int(in_sig);
+    debug_write(" out_sig=");
+    debug_write_int(out_sig);
+    debug_write("\n");
+#endif
+    proc_remap_signal(in_sig, out_sig, target_exes);
+    sleep_us(BROADCAST_SCAN_DELAY_US);
+    proc_remap_signal(in_sig, out_sig, target_exes);
+}
+
+static int count_descendants(void) {
+    int procfd = (int)sys_openat(AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY, 0);
+    if (procfd < 0) return 0;
+
+    int count = 0;
+    char dirbuf[4096];
+
+    for (;;) {
+        long n = sys_getdents64(procfd, dirbuf, sizeof(dirbuf));
+        if (n <= 0) break;
+
+        for (long pos = 0; pos < n;) {
+            struct linux_dirent64 *de = (struct linux_dirent64 *)(dirbuf + pos);
+            pos += de->d_reclen;
+
+            const char *name = de->d_name;
+            if (name[0] == '.') continue;
+
+            long pid = parse_pid(name);
+            if (pid <= 1) continue;
+            count++;
+        }
+    }
+
+    sys_close(procfd);
+    return count;
+}
+
+static long long monotonic_ms(void) {
+    struct timespec ts;
+    if (sys_clock_gettime(1 /* CLOCK_MONOTONIC */, &ts) < 0) return 0;
+    return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
+}
+
 static volatile long g_main_child = 0;
 static volatile int g_child_exited = 0;
 static volatile int g_main_status = 0;
-static volatile int g_pending_signal = 0;
+static volatile int g_pending_signals = 0;
 
 static void proxy_sig_handler(int sig) {
-    /* Just record the signal; the main loop does the /proc scan so we
-       stay async-signal-safe here. */
-    g_pending_signal = sig;
+    if (sig >= 1 && sig <= 31) {
+        g_pending_signals |= (1 << (sig - 1));
+    }
 }
 
 static void sigchld_handler(int sig) {
@@ -649,6 +806,30 @@ static void sigchld_handler(int sig) {
         if (pid == g_main_child) {
             g_child_exited = 1;
             g_main_status = status;
+        }
+    }
+}
+
+static void drain_zombies(void) {
+    int status;
+    while (sys_wait4(-1, &status, 1 /* WNOHANG */, 0) > 0);
+}
+
+static void handle_pending_signals(void) {
+    int pending = g_pending_signals;
+    g_pending_signals = 0;
+
+    for (int sig = 1; sig <= 31; sig++) {
+        if (!(pending & (1 << (sig - 1)))) continue;
+#ifdef TUXREAPERD_DEBUG
+        debug_write("[tuxreaperd] handling pending signal ");
+        debug_write_int(sig);
+        debug_write("\n");
+#endif
+        if (sig == APACHE_IN_SIG) {
+            broadcast_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
+        } else {
+            broadcast_signal(sig, sig, apache_exes);
         }
     }
 }
@@ -702,8 +883,8 @@ int main(int argc, char **argv, char **envp) {
 
     g_main_child = sys_fork();
     if (g_main_child == 0) {
-        /* Become the leader of a new process group so the parent can
-           target the whole workload tree with kill(-g_main_child, sig). */
+        /* Become the leader of a new process group so signals can be
+           broadcast to the whole workload tree. */
         sys_setpgid(0, 0);
         sys_rt_sigprocmask(2 /* SIG_SETMASK */, &old_mask, 0, sizeof(old_mask));
         my_execvp(argv[1], &argv[1], envp);
@@ -712,28 +893,45 @@ int main(int argc, char **argv, char **envp) {
         sys_exit_group(127);
     }
 
-    while (!g_child_exited) {
-        sys_rt_sigsuspend(&old_mask, sizeof(old_mask));
+#ifdef TUXREAPERD_DEBUG
+    debug_write("[tuxreaperd] started main_child=");
+    debug_write_int(g_main_child);
+    debug_write("\n");
+#endif
 
-        /* Dynamic zombie drain: reap any terminated descendants so they
-           do not clog the process table while the workload is running. */
-        int status;
-        while (sys_wait4(-1, &status, 1 /* WNOHANG */, 0) > 0);
+    long long child_exit_time_ms = 0;
 
-        if (g_pending_signal != 0) {
-            int sig = g_pending_signal;
-            g_pending_signal = 0;
-            if (sig == APACHE_IN_SIG) {
-                proc_remap_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
-            } else {
-                /* Broadcast unmapped signals to the workload process group. */
-                sys_kill(-g_main_child, sig);
+    while (1) {
+        if (g_child_exited) {
+            long long now = monotonic_ms();
+            if (child_exit_time_ms == 0) {
+                child_exit_time_ms = now;
+                debug_msg("main child exited, waiting up to 60s for descendants");
+            }
+
+            int descendants = count_descendants();
+#ifdef TUXREAPERD_DEBUG
+            debug_write("[tuxreaperd] descendants=");
+            debug_write_int(descendants);
+            debug_write("\n");
+#endif
+            if (descendants == 0) {
+                debug_msg("no descendants remaining, exiting cleanly");
+                break;
+            }
+            if (now - child_exit_time_ms >= DESCENDANT_TIMEOUT_SECONDS * 1000LL) {
+                debug_msg("descendant timeout reached, exiting");
+                break;
             }
         }
+
+        sys_rt_sigsuspend(&old_mask, sizeof(old_mask));
+
+        drain_zombies();
+        handle_pending_signals();
     }
 
-    int status;
-    while (sys_wait4(-1, &status, 1 /* WNOHANG */, 0) > 0);
+    drain_zombies();
 
     if (WIFEXITED(g_main_status)) {
         return WEXITSTATUS(g_main_status);

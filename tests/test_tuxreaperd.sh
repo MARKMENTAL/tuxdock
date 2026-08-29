@@ -147,6 +147,19 @@ else
     failures=$((failures + 1))
 fi
 
+printf '%s\n' "[TUI] Verify tuxreaperd waits for descendants after main child exits"
+descendant_start=$(date +%s)
+run_raw "docker run tuxreaperd descendant-wait" \
+    docker run --rm -v "$reaper_bin:/usr/local/bin/tuxreaperd:ro" \
+    "$image" /usr/local/bin/tuxreaperd sh -c 'sleep 3 & exit 0' || true
+descendant_elapsed=$(( $(date +%s) - descendant_start ))
+if [ "$descendant_elapsed" -ge 3 ] && [ "$descendant_elapsed" -le 10 ]; then
+    printf '%s\n' "[PASS] tuxreaperd waited for descendant to finish (elapsed ${descendant_elapsed}s)"
+else
+    printf '%s\n' "[FAIL] Expected ~3s wait, got ${descendant_elapsed}s"
+    failures=$((failures + 1))
+fi
+
 trap - EXIT INT TERM
 if [ "$failures" -gt 0 ]; then
     printf '%s\n' "tuxreaperd tests failed: $failures failure(s)" >&2

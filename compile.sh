@@ -6,6 +6,7 @@ run_tests=1
 web_view=0
 web_port=8095
 force_libc_reaper=0
+debug_reaper=0
 
 memory_limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
 if [ -z "$memory_limit" ] || [ "$memory_limit" = max ]; then
@@ -46,8 +47,9 @@ while [ "$#" -gt 0 ]; do
             fi
             ;;
         --force-libc-reaper) force_libc_reaper=1 ;;
+        --debug-reaper) debug_reaper=1 ;;
         *)
-            printf '%s\n' "Usage: $0 [--no-test] [--web-test-view [port]] [--force-libc-reaper]" >&2
+            printf '%s\n' "Usage: $0 [--no-test] [--web-test-view [port]] [--force-libc-reaper] [--debug-reaper]" >&2
             exit 2
             ;;
     esac
@@ -84,6 +86,10 @@ command -v gcc >/dev/null 2>&1 || {
 host_arch=$(uname -m)
 asm_archs='x86_64 amd64 aarch64 arm64'
 page_size=$(getconf PAGE_SIZE 2>/dev/null || printf '%s\n' 4096)
+reaper_cflags=""
+if [ "$debug_reaper" -eq 1 ]; then
+    reaper_cflags="-DTUXREAPERD_DEBUG"
+fi
 build_tuxreaperd() {
     case " $asm_archs " in
         *" $host_arch "*)
@@ -92,7 +98,7 @@ build_tuxreaperd() {
                 if gcc -nostdlib -static -fno-stack-protector -fno-asynchronous-unwind-tables \
                        -fno-builtin -O2 -s -Wl,--build-id=none -Wl,-z,noseparate-code \
                        -Wl,-z,max-page-size=${page_size} \
-                       -Wall -Wextra tuxreaperdasm.c -o build/tuxreaperd 2>/tmp/tuxreaperd-asm-build.log; then
+                       -Wall -Wextra $reaper_cflags tuxreaperdasm.c -o build/tuxreaperd 2>/tmp/tuxreaperd-asm-build.log; then
                     printf '%s\n' "[compile] Freestanding tuxreaperd built successfully"
                     return 0
                 fi
@@ -105,7 +111,7 @@ build_tuxreaperd() {
     esac
 
     printf '%s\n' "[compile] Building standard tuxreaperd for $host_arch"
-    gcc -O2 -static -Wall -Wextra tuxreaperdgnu.c -o build/tuxreaperd
+    gcc -O2 -static -Wall -Wextra $reaper_cflags tuxreaperdgnu.c -o build/tuxreaperd
 }
 build_tuxreaperd
 
