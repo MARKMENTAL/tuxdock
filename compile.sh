@@ -121,7 +121,50 @@ if [ "$run_tests" -eq 1 ]; then
     report_dir=$(mktemp -d /tmp/tux-dock-test.XXXXXX)
     test_output="$report_dir/ctest-output.txt"
     test_status=0
-    ctest --test-dir build --output-on-failure >"$test_output" 2>&1 || test_status=$?
+
+    charset=$(locale charmap 2>/dev/null || true)
+    if [ "$charset" = "UTF-8" ]; then
+        frames='⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏'
+    else
+        frames='| / - \'
+    fi
+
+    if [ -t 2 ]; then
+        printf '%s' "[compile] tux-dock compiled, finishing testing... "
+
+        (
+            i=0
+            while :; do
+                c=$(printf '%s\n' "$frames" | awk -v idx="$i" '{ n = (idx % NF) + 1; print $n }')
+                printf '\r[compile] tux-dock compiled, finishing testing... %s' "$c" >&2
+                i=$((i + 1))
+                sleep 0.1
+            done
+        ) &
+        spinner_pid=$!
+    else
+        printf '%s\n' "[compile] tux-dock compiled, running tests..." >&2
+        spinner_pid=""
+    fi
+
+    if [ "$debug_reaper" -eq 1 ]; then
+        ctest --test-dir build --verbose >"$test_output" 2>&1 || test_status=$?
+    else
+        ctest --test-dir build --output-on-failure >"$test_output" 2>&1 || test_status=$?
+    fi
+
+    if [ -n "$spinner_pid" ]; then
+        kill "$spinner_pid" 2>/dev/null || true
+        wait "$spinner_pid" 2>/dev/null || true
+        printf '\r%s\n' "[compile] tux-dock compiled, finishing testing... done" >&2
+    else
+        printf '%s\n' "[compile] tests complete" >&2
+    fi
+
+    if [ "$web_view" -eq 0 ]; then
+        cat "$test_output"
+        rm -rf "$report_dir"
+    fi
 
     if [ "$web_view" -eq 1 ]; then
         report="$report_dir/report.html"
