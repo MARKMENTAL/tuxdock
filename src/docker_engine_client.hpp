@@ -18,7 +18,8 @@ public:
 
     EngineResponse request(const std::string& method,
                            const std::string& path,
-                           const std::string& body = {}) const;
+                           const std::string& body = {},
+                           int timeout_seconds = 10) const;
 
 private:
     std::string socket_path_;

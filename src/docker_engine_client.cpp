@@ -34,7 +34,8 @@ bool DockerEngineClient::checkConnection(std::string& error) const {
 
 EngineResponse DockerEngineClient::request(const std::string& method,
                                            const std::string& path,
-                                           const std::string& body) const {
+                                           const std::string& body,
+                                           int timeout_seconds) const {
     EngineResponse response;
     const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -57,7 +58,7 @@ EngineResponse DockerEngineClient::request(const std::string& method,
     }
 
     struct timeval timeout{};
-    timeout.tv_sec = 10;
+    timeout.tv_sec = timeout_seconds;
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
@@ -88,7 +89,7 @@ EngineResponse DockerEngineClient::request(const std::string& method,
     }
     close(fd);
     if (count < 0) {
-        if (errno == EINTR) return request(method, path, body);
+        if (errno == EINTR) return request(method, path, body, timeout_seconds);
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
             response.error = std::strerror(errno);
             return response;

@@ -160,49 +160,31 @@ bool DockerManager::deleteImage(const std::string& id, std::string& message) con
 bool DockerManager::stopContainer(const std::string& id,
                                   std::string& message,
                                   int timeout_seconds) const {
-    const auto stop_request = [this, &id, timeout_seconds] {
-        return engine_.request("POST", "/containers/" + id + "/stop?t=" + std::to_string(timeout_seconds));
-    };
-    const auto acceptable = [](const EngineResponse& response) {
-        return response.status_code == 204 || response.status_code == 304 || response.status_code == 404 || response.ok();
-    };
-    const auto probe = [this, &id] {
-        const EngineResponse state = engine_.request("GET", "/containers/" + id + "/json");
-        if (!state.ok()) return StopProbe::Unknown;
-        try {
-            const bool running = nlohmann::json::parse(state.body)
-                                     .value("State", nlohmann::json::object())
-                                     .value("Running", true);
-            return running ? StopProbe::Running : StopProbe::Stopped;
-        } catch (const nlohmann::json::exception&) {
-            return StopProbe::Unknown;
-        }
-    };
-
-    const EngineResponse first = stop_request();
-    const bool first_timed_out = first.error == "Docker Engine response timed out.";
-    if (!acceptable(first) && !first_timed_out) {
-        message = apiError(first, "Could not stop that container.");
+    if (id.empty()) {
+        message = "Please provide a container ID.";
+        return false;
+    }
+    if (timeout_seconds < 0) {
+        message = "Stop timeout cannot be negative.";
         return false;
     }
 
-    StopProbe state = first_timed_out ? StopProbe::Unknown : waitForStopped(probe);
-    if (state != StopProbe::Stopped) {
-        const EngineResponse retry = stop_request();
-        const bool retry_timed_out = retry.error == "Docker Engine response timed out.";
-        if (!acceptable(retry) && !retry_timed_out) {
-            message = apiError(retry, "Could not confirm that container stopped.");
-            return false;
-        }
-        state = waitForStopped(probe);
+    // Docker holds the /stop response until the container stops or the grace
+    // period expires. Use a per-request HTTP timeout longer than the grace
+    // period so the client does not race Docker's own timeout.
+    const EngineResponse response = engine_.request(
+        "POST",
+        "/containers/" + id + "/stop?t=" + std::to_string(timeout_seconds),
+        "",
+        timeout_seconds + 5);
+
+    if (response.ok() || response.status_code == 304 || response.status_code == 404) {
+        message = "Container stopped.";
+        return true;
     }
 
-    if (state != StopProbe::Stopped) {
-        message = "Stop requested, but container state could not be confirmed.";
-        return false;
-    }
-    message = "Container stopped.";
-    return true;
+    message = apiError(response, "Could not stop that container.");
+    return false;
 }
 
 bool DockerManager::removeContainer(const std::string& id, std::string& message) const {
