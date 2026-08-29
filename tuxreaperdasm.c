@@ -133,6 +133,17 @@ static inline long sys_rt_sigsuspend(const unsigned long *mask, unsigned long si
     return ret;
 }
 
+static inline long sys_setpgid(long pid, long pgid) {
+    long ret;
+    __asm__ volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(109), "D"(pid), "S"(pgid)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
 static inline long sys_openat(int dirfd, const char *path, int flags, int mode) {
     long ret;
     register long r10 __asm__("r10") = mode;
@@ -209,22 +220,22 @@ __asm__(
 #elif defined(__aarch64__)
 
 static inline long sys_write(int fd, const void *buf, long n) {
-    register long x8 __asm__("x8") = 64;
     register long x0 __asm__("x0") = fd;
     register long x1 __asm__("x1") = (long)buf;
     register long x2 __asm__("x2") = n;
+    register long x8 __asm__("x8") = 64;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2)
+        : "r"(x1), "r"(x2), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_exit_group(int status) {
-    register long x8 __asm__("x8") = 94;
     register long x0 __asm__("x0") = status;
+    register long x8 __asm__("x8") = 94;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
@@ -236,55 +247,55 @@ static inline long sys_exit_group(int status) {
 
 static inline long sys_fork(void) {
     /* AArch64 has no legacy fork syscall; clone(SIGCHLD, 0) gives fork semantics. */
-    register long x8 __asm__("x8") = 220;  /* __NR_clone */
     register long x0 __asm__("x0") = 17;   /* SIGCHLD */
     register long x1 __asm__("x1") = 0;    /* newsp = 0 */
+    register long x8 __asm__("x8") = 220;  /* __NR_clone */
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1)
+        : "r"(x1), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_execve(const char *path, char *const argv[], char *const envp[]) {
-    register long x8 __asm__("x8") = 221;
     register long x0 __asm__("x0") = (long)path;
     register long x1 __asm__("x1") = (long)argv;
     register long x2 __asm__("x2") = (long)envp;
+    register long x8 __asm__("x8") = 221;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2)
+        : "r"(x1), "r"(x2), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_wait4(long pid, int *status, int options, void *rusage) {
-    register long x8 __asm__("x8") = 260;
     register long x0 __asm__("x0") = pid;
     register long x1 __asm__("x1") = (long)status;
     register long x2 __asm__("x2") = options;
     register long x3 __asm__("x3") = (long)rusage;
+    register long x8 __asm__("x8") = 260;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2), "r"(x3)
+        : "r"(x1), "r"(x2), "r"(x3), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_kill(long pid, int sig) {
-    register long x8 __asm__("x8") = 129;
     register long x0 __asm__("x0") = pid;
     register long x1 __asm__("x1") = sig;
+    register long x8 __asm__("x8") = 129;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1)
+        : "r"(x1), "r"(x8)
         : "memory", "cc"
     );
     return x0;
@@ -292,16 +303,16 @@ static inline long sys_kill(long pid, int sig) {
 
 static inline long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
                              unsigned long arg4, unsigned long arg5) {
-    register long x8 __asm__("x8") = 167;
     register long x0 __asm__("x0") = option;
     register long x1 __asm__("x1") = arg2;
     register long x2 __asm__("x2") = arg3;
     register long x3 __asm__("x3") = arg4;
     register long x4 __asm__("x4") = arg5;
+    register long x8 __asm__("x8") = 167;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2), "r"(x3), "r"(x4)
+        : "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x8)
         : "memory", "cc"
     );
     return x0;
@@ -309,15 +320,15 @@ static inline long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 
 static inline long sys_rt_sigaction(int sig, const struct k_sigaction *act,
                                     struct k_sigaction *oldact, unsigned long sigsetsize) {
-    register long x8 __asm__("x8") = 134;
     register long x0 __asm__("x0") = sig;
     register long x1 __asm__("x1") = (long)act;
     register long x2 __asm__("x2") = (long)oldact;
     register long x3 __asm__("x3") = sigsetsize;
+    register long x8 __asm__("x8") = 134;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2), "r"(x3)
+        : "r"(x1), "r"(x2), "r"(x3), "r"(x8)
         : "memory", "cc"
     );
     return x0;
@@ -325,57 +336,70 @@ static inline long sys_rt_sigaction(int sig, const struct k_sigaction *act,
 
 static inline long sys_rt_sigprocmask(int how, const unsigned long *set,
                                       unsigned long *oldset, unsigned long sigsetsize) {
-    register long x8 __asm__("x8") = 135;
     register long x0 __asm__("x0") = how;
     register long x1 __asm__("x1") = (long)set;
     register long x2 __asm__("x2") = (long)oldset;
     register long x3 __asm__("x3") = sigsetsize;
+    register long x8 __asm__("x8") = 135;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2), "r"(x3)
+        : "r"(x1), "r"(x2), "r"(x3), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_rt_sigsuspend(const unsigned long *mask, unsigned long sigsetsize) {
-    register long x8 __asm__("x8") = 133;
     register long x0 __asm__("x0") = (long)mask;
     register long x1 __asm__("x1") = sigsetsize;
+    register long x8 __asm__("x8") = 133;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1)
+        : "r"(x1), "r"(x8)
+        : "memory", "cc"
+    );
+    return x0;
+}
+
+static inline long sys_setpgid(long pid, long pgid) {
+    register long x0 __asm__("x0") = pid;
+    register long x1 __asm__("x1") = pgid;
+    register long x8 __asm__("x8") = 154;
+    __asm__ volatile (
+        "svc #0"
+        : "+r"(x0)
+        : "r"(x1), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_openat(int dirfd, const char *path, int flags, int mode) {
-    register long x8 __asm__("x8") = 56;
     register long x0 __asm__("x0") = dirfd;
     register long x1 __asm__("x1") = (long)path;
     register long x2 __asm__("x2") = flags;
     register long x3 __asm__("x3") = mode;
+    register long x8 __asm__("x8") = 56;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2), "r"(x3)
+        : "r"(x1), "r"(x2), "r"(x3), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_getdents64(int fd, void *dirp, unsigned int count) {
-    register long x8 __asm__("x8") = 61;
     register long x0 __asm__("x0") = fd;
     register long x1 __asm__("x1") = (long)dirp;
     register long x2 __asm__("x2") = count;
+    register long x8 __asm__("x8") = 61;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2)
+        : "r"(x1), "r"(x2), "r"(x8)
         : "memory", "cc"
     );
     return x0;
@@ -383,23 +407,23 @@ static inline long sys_getdents64(int fd, void *dirp, unsigned int count) {
 
 static inline long sys_readlink(const char *path, char *buf, long bufsiz) {
     /* AArch64 has no plain readlink syscall; readlinkat is the ABI. */
-    register long x8 __asm__("x8") = 78;   /* __NR_readlinkat */
     register long x0 __asm__("x0") = -100; /* AT_FDCWD */
     register long x1 __asm__("x1") = (long)path;
     register long x2 __asm__("x2") = (long)buf;
     register long x3 __asm__("x3") = bufsiz;
+    register long x8 __asm__("x8") = 78;   /* __NR_readlinkat */
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
-        : "r"(x8), "r"(x1), "r"(x2), "r"(x3)
+        : "r"(x1), "r"(x2), "r"(x3), "r"(x8)
         : "memory", "cc"
     );
     return x0;
 }
 
 static inline long sys_close(int fd) {
-    register long x8 __asm__("x8") = 57;
     register long x0 __asm__("x0") = fd;
+    register long x8 __asm__("x8") = 57;
     __asm__ volatile (
         "svc #0"
         : "+r"(x0)
@@ -678,6 +702,9 @@ int main(int argc, char **argv, char **envp) {
 
     g_main_child = sys_fork();
     if (g_main_child == 0) {
+        /* Become the leader of a new process group so the parent can
+           target the whole workload tree with kill(-g_main_child, sig). */
+        sys_setpgid(0, 0);
         sys_rt_sigprocmask(2 /* SIG_SETMASK */, &old_mask, 0, sizeof(old_mask));
         my_execvp(argv[1], &argv[1], envp);
         static const char err[] = "execvp failed\n";
@@ -688,14 +715,19 @@ int main(int argc, char **argv, char **envp) {
     while (!g_child_exited) {
         sys_rt_sigsuspend(&old_mask, sizeof(old_mask));
 
+        /* Dynamic zombie drain: reap any terminated descendants so they
+           do not clog the process table while the workload is running. */
+        int status;
+        while (sys_wait4(-1, &status, 1 /* WNOHANG */, 0) > 0);
+
         if (g_pending_signal != 0) {
             int sig = g_pending_signal;
             g_pending_signal = 0;
             if (sig == APACHE_IN_SIG) {
                 proc_remap_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
             } else {
-                /* Unmapped signals get the old broadcast treatment. */
-                sys_kill(-1, sig);
+                /* Broadcast unmapped signals to the workload process group. */
+                sys_kill(-g_main_child, sig);
             }
         }
     }

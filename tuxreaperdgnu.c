@@ -138,6 +138,9 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_main_child == 0) {
+        // Become the leader of a new process group so the parent can
+        // target the whole workload tree with kill(-g_main_child, sig).
+        setpgid(0, 0);
         sigprocmask(SIG_SETMASK, &old_mask, NULL);
         execvp(argv[1], &argv[1]);
         perror("execvp");
@@ -148,14 +151,18 @@ int main(int argc, char *argv[]) {
     while (!g_child_exited) {
         sigsuspend(&old_mask);
 
+        // Dynamic zombie drain: reap any terminated descendants so they
+        // do not clog the process table while the workload is running.
+        while (waitpid(-1, NULL, WNOHANG) > 0);
+
         if (g_pending_signal != 0) {
             int sig = g_pending_signal;
             g_pending_signal = 0;
             if (sig == APACHE_IN_SIG) {
                 proc_remap_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
             } else {
-                // Unmapped signals get the old broadcast treatment.
-                kill(-1, sig);
+                // Broadcast unmapped signals to the workload process group.
+                kill(-g_main_child, sig);
             }
         }
     }
