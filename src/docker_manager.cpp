@@ -157,8 +157,12 @@ bool DockerManager::deleteImage(const std::string& id, std::string& message) con
     return true;
 }
 
-bool DockerManager::stopContainer(const std::string& id, std::string& message) const {
-    const auto stop_request = [this, &id] { return engine_.request("POST", "/containers/" + id + "/stop"); };
+bool DockerManager::stopContainer(const std::string& id,
+                                  std::string& message,
+                                  int timeout_seconds) const {
+    const auto stop_request = [this, &id, timeout_seconds] {
+        return engine_.request("POST", "/containers/" + id + "/stop?t=" + std::to_string(timeout_seconds));
+    };
     const auto acceptable = [](const EngineResponse& response) {
         return response.status_code == 204 || response.status_code == 304 || response.status_code == 404 || response.ok();
     };

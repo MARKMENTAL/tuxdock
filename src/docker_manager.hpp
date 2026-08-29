@@ -38,7 +38,9 @@ public:
                          std::string& message) const;
     bool startDetached(const std::string& containerId, std::string& message) const;
     bool deleteImage(const std::string& imageId, std::string& message) const;
-    bool stopContainer(const std::string& containerId, std::string& message) const;
+    bool stopContainer(const std::string& containerId,
+                       std::string& message,
+                       int timeout_seconds = 10) const;
     bool removeContainer(const std::string& containerId, std::string& message) const;
     bool execShell(const std::string& containerId, std::string& message) const;
     bool execDetachedCommand(const std::string& containerId,

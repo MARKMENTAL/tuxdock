@@ -1,5 +1,8 @@
 # Tux-Dock Development Log
 
+## 0.3.1-beta
+Added an optional timeout_seconds parameter to stopContainer
+
 ## 0.3-beta
 
 This release introduces `tuxreaperd`, a micro init system for containers.

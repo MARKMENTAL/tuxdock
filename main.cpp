@@ -154,6 +154,7 @@ private:
     std::vector<std::thread> action_threads_;
     OperationState operation_state_;
     std::size_t spinner_frame_ = 0;
+    static constexpr int kMaxStopTimeout = 300;
 
     static bool IsDigits(const std::string& value);
     static bool IsValidContainerName(const std::string& name);
@@ -197,7 +198,7 @@ private:
     void BeginBusyOperation(const std::string&, const std::string&, std::function<std::string()>);
     void StartSpinner();
     void StopSpinner();
-    void BeginStopOperation(const std::string& id);
+    void BeginStopOperation(const std::string& id, int timeout_seconds = 10);
     void RefreshState(const std::string& message = "Refreshing Docker state...");
     void ApplyRefreshResults(DockerManager::ListResult<DockerManager::ContainerInfo> containers,
                              DockerManager::ListResult<DockerManager::ImageInfo> images);
@@ -479,16 +480,16 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
         }
     });
 }
-void TuxDockApp::BeginStopOperation(const std::string& id) {
+void TuxDockApp::BeginStopOperation(const std::string& id, int timeout_seconds) {
     operation_state_.begin("Stopping container", "Stopping and refreshing state...");
     modal_mode_ = ModalMode::Busy;
     InstallSignalTraps();
     auto* active = screen_;
     spinner_frame_ = 0;
     StartSpinner();
-    action_threads_.emplace_back([this, active, id] {
+    action_threads_.emplace_back([this, active, id, timeout_seconds] {
         std::string message;
-        const bool stopped = docker_.stopContainer(id, message);
+        const bool stopped = docker_.stopContainer(id, message, timeout_seconds);
         auto containers = docker_.getContainerList();
         auto images = docker_.getImageList();
         if (!active || ftxui::ScreenInteractive::Active() != active) return;
@@ -644,8 +645,25 @@ void TuxDockApp::ActionDeleteImage() {
 void TuxDockApp::ActionStopContainer() {
     PromptContainerSelection(
         "Stop Container",
-        [this](const std::string& id, const std::string&) {
-            BeginStopOperation(id);
+        [this](const std::string& id, const std::string& name) {
+            OpenInput(
+                "Stop Container",
+                "Shutdown grace period in seconds for " + name +
+                    " (default 10, max " + std::to_string(kMaxStopTimeout) + "):",
+                [this, id](bool ok, const std::string& value) {
+                    if (!ok) return;
+                    int seconds = 10;
+                    if (!value.empty()) {
+                        try {
+                            seconds = std::stoi(value);
+                        } catch (...) {
+                            seconds = 10;
+                        }
+                    }
+                    if (seconds < 0) seconds = 10;
+                    if (seconds > kMaxStopTimeout) seconds = kMaxStopTimeout;
+                    BeginStopOperation(id, seconds);
+                });
         });
 }
 
@@ -699,7 +717,7 @@ void TuxDockApp::ActionExecDetachedCommand() {
 }
 
 void TuxDockApp::ActionAbout() {
-    OpenMessage("About Tux-Dock", "Tux-Dock 0.3-beta | Created by markmental");
+    OpenMessage("About Tux-Dock", "Tux-Dock 0.3.1-beta | Created by markmental");
 }
 
 void TuxDockApp::ExecuteSelectedAction() {
