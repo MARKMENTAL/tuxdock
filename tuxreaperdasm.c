@@ -595,7 +595,13 @@ static const char * const apache_exes[] = {
 
 #define AT_FDCWD       -100
 #define O_RDONLY       0
-#define O_DIRECTORY    00200000
+#if defined(__x86_64__)
+#define O_DIRECTORY    00200000   /* 0x10000 */
+#elif defined(__aarch64__)
+#define O_DIRECTORY    040000     /* 0x4000 */
+#else
+#error "tuxreaperdasm.c: unknown O_DIRECTORY for this architecture"
+#endif
 
 struct linux_dirent64 {
     unsigned long long d_ino;
