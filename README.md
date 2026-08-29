@@ -25,6 +25,8 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 
 ## Why tuxreaperd?
 
+![tuxreaperd, represented by Tux in a grim reaper cowl, lookin gothically cool](tuxreaperdpromo.jpg)
+
 Most container inits are generic: they spawn one child, forward signals, and reap zombies. That is enough for simple apps, but it breaks down for classic web engines that violate standard UNIX signal conventions:
 
 - **Apache HTTPD** uses `SIGWINCH` for graceful shutdown.
