@@ -46,6 +46,10 @@ static const char * const apache_exes[] = {
    processes that spawned just after the first scan. */
 #define BROADCAST_SCAN_DELAY_US 100000
 
+/* How often to poll while waiting for descendants after the main child exits.
+   Short enough to react quickly, long enough to avoid burning CPU. */
+#define DESCENDANT_POLL_INTERVAL_US 50000
+
 static volatile pid_t g_main_child = 0;
 static volatile sig_atomic_t g_child_exited = 0;
 static volatile int g_main_status = 0;
@@ -231,8 +235,6 @@ int main(int argc, char *argv[]) {
     long long child_exit_time_ms = 0;
 
     while (1) {
-        int descendants = 0;
-
         if (g_child_exited) {
             long long now = monotonic_ms();
             if (child_exit_time_ms == 0) {
@@ -241,7 +243,8 @@ int main(int argc, char *argv[]) {
                       DESCENDANT_TIMEOUT_SECONDS);
             }
 
-            descendants = count_descendants();
+            drain_zombies();
+            int descendants = count_descendants();
             debug("[tuxreaperd] descendants=%d", descendants);
 
             if (descendants == 0) {
@@ -253,14 +256,19 @@ int main(int argc, char *argv[]) {
                 debug("[tuxreaperd] descendant timeout reached, exiting");
                 break;
             }
+
+            // Poll briefly so the 60-second deadline can tick even if no
+            // SIGCHLD or external signal arrives. handle_pending_signals()
+            // catches any signal that was delivered while we slept.
+            usleep(DESCENDANT_POLL_INTERVAL_US);
+            handle_pending_signals();
+        } else {
+            // Workload active: block atomically with zero CPU wakeups until a
+            // signal arrives.
+            sigsuspend(&old_mask);
+            drain_zombies();
+            handle_pending_signals();
         }
-
-        // Wait for a signal. When one arrives, reap and handle it, then loop
-        // back to re-evaluate descendants and timeouts.
-        sigsuspend(&old_mask);
-
-        drain_zombies();
-        handle_pending_signals();
     }
 
     // Final sweep of any remaining lingering zombies.

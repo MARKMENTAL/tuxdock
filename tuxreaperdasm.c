@@ -196,11 +196,10 @@ static inline long sys_close(int fd) {
 
 static inline long sys_clock_gettime(int clk_id, struct timespec *tp) {
     long ret;
-    register long r10 __asm__("r10") = 0;
     __asm__ volatile (
         "syscall"
         : "=a"(ret)
-        : "a"(228), "D"((long)clk_id), "S"(tp), "r"(r10)
+        : "a"(228), "D"((long)clk_id), "S"(tp)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -592,6 +591,7 @@ static const char * const apache_exes[] = {
 
 #define DESCENDANT_TIMEOUT_SECONDS 60
 #define BROADCAST_SCAN_DELAY_US     100000
+#define DESCENDANT_POLL_INTERVAL_US 50000
 
 #define AT_FDCWD       -100
 #define O_RDONLY       0
@@ -793,7 +793,7 @@ static volatile int g_pending_signals = 0;
 
 static void proxy_sig_handler(int sig) {
     if (sig >= 1 && sig <= 31) {
-        g_pending_signals |= (1 << (sig - 1));
+        g_pending_signals |= (1U << (sig - 1));
     }
 }
 
@@ -820,7 +820,7 @@ static void handle_pending_signals(void) {
     g_pending_signals = 0;
 
     for (int sig = 1; sig <= 31; sig++) {
-        if (!(pending & (1 << (sig - 1)))) continue;
+        if (!(pending & (1U << (sig - 1)))) continue;
 #ifdef TUXREAPERD_DEBUG
         debug_write("[tuxreaperd] handling pending signal ");
         debug_write_int(sig);
@@ -909,6 +909,7 @@ int main(int argc, char **argv, char **envp) {
                 debug_msg("main child exited, waiting up to 60s for descendants");
             }
 
+            drain_zombies();
             int descendants = count_descendants();
 #ifdef TUXREAPERD_DEBUG
             debug_write("[tuxreaperd] descendants=");
@@ -923,12 +924,19 @@ int main(int argc, char **argv, char **envp) {
                 debug_msg("descendant timeout reached, exiting");
                 break;
             }
+
+            /* Poll briefly so the 60-second deadline can tick even if no
+               SIGCHLD or external signal arrives. handle_pending_signals()
+               catches any signal that was delivered while we slept. */
+            sleep_us(DESCENDANT_POLL_INTERVAL_US);
+            handle_pending_signals();
+        } else {
+            /* Workload active: block atomically with zero CPU wakeups until a
+               signal arrives. */
+            sys_rt_sigsuspend(&old_mask, sizeof(old_mask));
+            drain_zombies();
+            handle_pending_signals();
         }
-
-        sys_rt_sigsuspend(&old_mask, sizeof(old_mask));
-
-        drain_zombies();
-        handle_pending_signals();
     }
 
     drain_zombies();
