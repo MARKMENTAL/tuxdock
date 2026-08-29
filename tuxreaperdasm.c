@@ -668,6 +668,11 @@ static long parse_pid(const char *s) {
    Skip PID 1 (the reaper itself). */
 static void proc_remap_signal(int in_sig, int out_sig, const char *const *target_exes) {
     int procfd = (int)sys_openat(AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY, 0);
+#ifdef TUXREAPERD_DEBUG
+    debug_write("[tuxreaperd] proc_remap_signal openat fd=");
+    debug_write_int(procfd);
+    debug_write("\n");
+#endif
     if (procfd < 0) {
         debug_msg("opendir(/proc) failed");
         return;
@@ -677,6 +682,11 @@ static void proc_remap_signal(int in_sig, int out_sig, const char *const *target
 
     for (;;) {
         long n = sys_getdents64(procfd, dirbuf, sizeof(dirbuf));
+#ifdef TUXREAPERD_DEBUG
+        debug_write("[tuxreaperd] proc_remap getdents64 n=");
+        debug_write_int(n);
+        debug_write("\n");
+#endif
         if (n <= 0) break;
 
         for (long pos = 0; pos < n;) {
@@ -701,6 +711,15 @@ static void proc_remap_signal(int in_sig, int out_sig, const char *const *target
 
             char linkbuf[256];
             long linklen = sys_readlink(path, linkbuf, sizeof(linkbuf) - 1);
+#ifdef TUXREAPERD_DEBUG
+            debug_write("[tuxreaperd] proc_remap pid=");
+            debug_write_int(pid);
+            debug_write(" path=");
+            debug_write(path);
+            debug_write(" linklen=");
+            debug_write_int(linklen);
+            debug_write("\n");
+#endif
             if (linklen <= 0) continue;
             linkbuf[linklen] = '\0';
 
@@ -754,6 +773,13 @@ static void broadcast_signal(int in_sig, int out_sig, const char *const *target_
 
 static int count_descendants(void) {
     int procfd = (int)sys_openat(AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY, 0);
+#ifdef TUXREAPERD_DEBUG
+    debug_write("[tuxreaperd] count_descendants openat fd=");
+    debug_write_int(procfd);
+    debug_write(" flags=0x");
+    debug_write_int(O_RDONLY | O_DIRECTORY);
+    debug_write("\n");
+#endif
     if (procfd < 0) return 0;
 
     int count = 0;
@@ -761,6 +787,11 @@ static int count_descendants(void) {
 
     for (;;) {
         long n = sys_getdents64(procfd, dirbuf, sizeof(dirbuf));
+#ifdef TUXREAPERD_DEBUG
+        debug_write("[tuxreaperd] getdents64 n=");
+        debug_write_int(n);
+        debug_write("\n");
+#endif
         if (n <= 0) break;
 
         for (long pos = 0; pos < n;) {
@@ -768,6 +799,15 @@ static int count_descendants(void) {
             pos += de->d_reclen;
 
             const char *name = de->d_name;
+#ifdef TUXREAPERD_DEBUG
+            debug_write("[tuxreaperd] dirent name=");
+            debug_write(name);
+            debug_write(" reclen=");
+            debug_write_int(de->d_reclen);
+            debug_write(" d_type=");
+            debug_write_int(de->d_type);
+            debug_write("\n");
+#endif
             if (name[0] == '.') continue;
 
             long pid = parse_pid(name);
