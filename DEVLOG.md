@@ -1,5 +1,18 @@
 # Tux-Dock Development Log
 
+## 0.4-beta
+
+### ARM64 / tuxreaperd fixes
+
+- Fixed `tuxreaperdasm.c` on ARM64 by using the architecture-specific `O_DIRECTORY` value (`0x4000` on `aarch64`, `0x10000` on `x86_64`). The hardcoded x86_64 value caused `openat("/proc", ...)` to fail with `EINVAL`, which broke `/proc` scanning, descendant waiting, and SIGTERM forwarding on ARM64 Chromebooks/VMs.
+- Verified graceful Apache shutdown on ARM64: tuxreaperd remaps `SIGTERM` to `SIGWINCH` for Apache processes and waits for descendants to finish, allowing in-flight HTTP responses to complete before the container exits.
+- Added `--debug-reaper` flag to `compile.sh` to build tuxreaperd with `TUXREAPERD_DEBUG` and run verbose tests; useful for diagnosing `/proc` scanning, signal broadcasts, and descendant waits.
+- Added adaptive TTY/non-TTY spinner to `compile.sh` for clearer feedback during the test phase.
+
+### Version
+
+- Bumped version to `0.4-beta`.
+
 ## 0.3.1-beta
 Added an optional timeout_seconds parameter to stopContainer
 

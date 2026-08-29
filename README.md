@@ -18,7 +18,7 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 - Direct `fork`/`exec` process execution for CLI-backed streaming and interactive commands.
 - Persistent container listings that retain exited containers.
 - Robust stop handling with state polling, timeout retry, and idempotent stop responses.
-- `tuxreaperd` micro init system: a tiny statically-linked C daemon mounted into created containers as PID 1, acting as a subreaper so orphaned processes never linger as zombies, broadcasting lifecycle signals (SIGTERM, SIGQUIT, SIGINT, SIGHUP, SIGUSR1, SIGUSR2) to the whole process tree via `kill(-1, sig)`, and propagating exit status. [Processes don't fear tuxreaperd!](tuxreaperdpromo.jpg)
+- `tuxreaperd` micro init system: a tiny statically-linked C daemon mounted into created containers as PID 1, acting as a subreaper so orphaned processes never linger as zombies, broadcasting lifecycle signals (SIGTERM, SIGQUIT, SIGINT, SIGHUP, SIGUSR1, SIGUSR2) to the whole process tree via `kill(-1, sig)`, and propagating exit status. Includes architecture-specific `O_DIRECTORY` handling for `x86_64` and `aarch64`, plus Apache-aware `SIGTERM`→`SIGWINCH` remapping for graceful shutdown on both architectures. [Processes don't fear tuxreaperd!](tuxreaperdpromo.jpg)
 - About screen in-app with project/version/repository info.
 
 ---
@@ -55,9 +55,12 @@ sudo ./build/tux-dock
 
 # Force the libc-based tuxreaperd implementation
 ./compile.sh --force-libc-reaper
+
+# Build with verbose tuxreaperd debug output during tests
+./compile.sh --debug-reaper
 ```
 
-`compile.sh` builds the `tuxreaperd` micro init before the main project. On supported hosts (`x86_64`/`amd64`/`aarch64`/`arm64`) it first tries the freestanding syscall implementation in `tuxreaperdasm.c`; on other architectures, or if the freestanding build fails, it falls back to the standard POSIX implementation in `tuxreaperdgnu.c`. Pass `--force-libc-reaper` to skip the freestanding build and use the libc implementation directly.
+`compile.sh` builds the `tuxreaperd` micro init before the main project. On supported hosts (`x86_64`/`amd64`/`aarch64`/`arm64`) it first tries the freestanding syscall implementation in `tuxreaperdasm.c`; on other architectures, or if the freestanding build fails, it falls back to the standard POSIX implementation in `tuxreaperdgnu.c`. Pass `--force-libc-reaper` to skip the freestanding build and use the libc implementation directly. Pass `--debug-reaper` to build tuxreaperd with `TUXREAPERD_DEBUG` and run tests with verbose output, showing the reaper's internal `/proc` scans, signal broadcasts, and descendant waits.
 
 The web report is generated under `/tmp` and includes exact CTest output, test summaries, Docker integration output, a text rendition of the TUI flow, and the tuxreaperd zombie-reaping results. It requires `nc`, `netcat`, or Nmap's `ncat`; press `Ctrl-C` to stop the server. The default port is `8095`; pass a port after `--web-test-view` to override it. `--web-test-view --no-test` is invalid. Normal test runs include a Docker integration test using `debian:forky`, so Docker must be available. On systems with 1 GB or less of available memory, the script automatically uses a smaller build configuration and a single build job.
 
@@ -125,7 +128,7 @@ ctest --test-dir build --output-on-failure
 
 ## About / Version
 
-- Version: `0.3.1-beta`
+- Version: `0.4-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
 - Forgejo: https://mentalnet.xyz/forgejo-v2/markmental/tuxdock
