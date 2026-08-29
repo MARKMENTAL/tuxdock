@@ -117,6 +117,11 @@ bool DockerManager::createContainer(const std::string& name,
 
     std::vector<std::string> args{"docker", "create", "--name", name};
 
+    // Give the container a 60-second stop grace period so tuxreaperd can wait
+    // for descendants (e.g., nginx workers) to finish gracefully before Docker
+    // sends SIGKILL.
+    args.push_back("--stop-timeout=60");
+
     // Port mappings
     for (const auto& port : ports) {
         args.push_back("-p");

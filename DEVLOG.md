@@ -6,8 +6,14 @@
 
 - Fixed `tuxreaperdasm.c` on ARM64 by using the architecture-specific `O_DIRECTORY` value (`0x4000` on `aarch64`, `0x10000` on `x86_64`). The hardcoded x86_64 value caused `openat("/proc", ...)` to fail with `EINVAL`, which broke `/proc` scanning, descendant waiting, and SIGTERM forwarding on ARM64 Chromebooks/VMs.
 - Verified graceful Apache shutdown on ARM64: tuxreaperd remaps `SIGTERM` to `SIGWINCH` for Apache processes and waits for descendants to finish, allowing in-flight HTTP responses to complete before the container exits.
+- Added nginx-aware `SIGTERM`→`SIGQUIT` remapping in both `tuxreaperdgnu.c` and `tuxreaperdasm.c`. When `docker stop` sends `SIGTERM`, nginx processes (`/usr/sbin/nginx`, `/usr/local/nginx/sbin/nginx`) receive `SIGQUIT` for graceful shutdown instead of `SIGTERM`.
+- Added PHP-FPM-aware `SIGTERM`→`SIGQUIT` remapping with prefix matching (e.g., `/usr/sbin/php-fpm` matches `/usr/sbin/php-fpm8.4`) so PHP-FPM receives the correct graceful-shutdown signal when the container stops.
+- Documented that PHP-FPM graceful shutdown requires `process_control_timeout` to be set in the PHP-FPM pool configuration (e.g., `process_control_timeout = 60s`). Without it, the PHP-FPM master exits immediately on `SIGQUIT` and in-flight requests are dropped.
+- Set the container stop timeout to 60 seconds in `DockerManager::createContainer` (`--stop-timeout=60`) and raised the TUI stop default to 60 seconds, aligning Docker's grace period with `tuxreaperd`'s descendant wait so graceful shutdowns are not cut short by a premature SIGKILL.
 - Added `--debug-reaper` flag to `compile.sh` to build tuxreaperd with `TUXREAPERD_DEBUG` and run verbose tests; useful for diagnosing `/proc` scanning, signal broadcasts, and descendant waits.
 - Added adaptive TTY/non-TTY spinner to `compile.sh` for clearer feedback during the test phase.
+- Added a "Why tuxreaperd?" comparison section to `README.md` with a feature matrix and ASCII size chart contrasting `tuxreaperd` with `tini`, `dumb-init`, and `mini-init-asm`.
+- Added a "Web workload guide" section to `README.md` covering Apache, nginx, and PHP-FPM signal conventions, required PHP-FPM `process_control_timeout` configuration, container startup examples, and the `sleep.php` verification test.
 
 ### Version
 

@@ -28,7 +28,9 @@ static void debug(const char *fmt, ...) {
 /* Apache hijacks SIGWINCH (window resize) for graceful shutdown. Yes,
    really. So when the outside world sends SIGTERM, we translate it to
    SIGWINCH for anything whose /proc/<pid>/exe smells like apache2.
-   Other processes receive the original signal unchanged. */
+   Nginx and PHP-FPM both use SIGQUIT for graceful shutdown, so we
+   translate SIGTERM to SIGQUIT for those processes. Other processes
+   receive the original signal unchanged. */
 static const char * const apache_exes[] = {
     "/usr/sbin/apache2",
     "/usr/sbin/httpd",
@@ -37,6 +39,30 @@ static const char * const apache_exes[] = {
 };
 #define APACHE_IN_SIG  SIGTERM
 #define APACHE_OUT_SIG SIGWINCH
+
+static const char * const nginx_exes[] = {
+    "/usr/sbin/nginx",
+    "/usr/local/nginx/sbin/nginx",
+    0
+};
+#define NGINX_IN_SIG  SIGTERM
+#define NGINX_OUT_SIG SIGQUIT
+
+/* PHP-FPM installs versioned binaries like /usr/sbin/php-fpm8.4, so these
+   rules use prefix matching to catch any version without maintaining a list. */
+static const char * const phpfpm_exes[] = {
+    "/usr/sbin/php-fpm",
+    "/usr/local/sbin/php-fpm",
+    0
+};
+#define PHPFPM_IN_SIG  SIGTERM
+#define PHPFPM_OUT_SIG SIGQUIT
+
+struct sig_rule {
+    const char *const *target_exes;
+    int out_sig;
+    int prefix_match;  /* 0 = exact, 1 = prefix */
+};
 
 /* How long to keep the container alive after the main child exits, waiting
    for remaining descendants (e.g., Apache workers) to finish gracefully. */
@@ -76,7 +102,7 @@ static void proxy_signal_handler(int sig) {
     }
 }
 
-static void proc_remap_signal(int in_sig, int out_sig, const char *const *target_exes) {
+static void proc_remap_signal(int in_sig, const struct sig_rule *rules, int num_rules) {
     DIR *proc = opendir("/proc");
     if (!proc) {
         debug("[tuxreaperd] opendir(/proc) failed: %s", strerror(errno));
@@ -100,18 +126,33 @@ static void proc_remap_signal(int in_sig, int out_sig, const char *const *target
         if (linklen <= 0) continue;
         linkbuf[linklen] = '\0';
 
-        int matched = 0;
-        for (int i = 0; target_exes[i]; i++) {
-            size_t target_len = strlen(target_exes[i]);
-            if ((size_t)linklen == target_len && strcmp(linkbuf, target_exes[i]) == 0) {
-                matched = 1;
+        int sent_sig = in_sig;
+        for (int r = 0; r < num_rules; r++) {
+            int matched = 0;
+            for (int i = 0; rules[r].target_exes[i]; i++) {
+                size_t target_len = strlen(rules[r].target_exes[i]);
+                if (rules[r].prefix_match) {
+                    if ((size_t)linklen >= target_len &&
+                        strncmp(linkbuf, rules[r].target_exes[i], target_len) == 0) {
+                        matched = 1;
+                        break;
+                    }
+                } else {
+                    if ((size_t)linklen == target_len &&
+                        strcmp(linkbuf, rules[r].target_exes[i]) == 0) {
+                        matched = 1;
+                        break;
+                    }
+                }
+            }
+            if (matched) {
+                sent_sig = rules[r].out_sig;
                 break;
             }
         }
 
-        int sent_sig = matched ? out_sig : in_sig;
-        debug("[tuxreaperd] scan pid=%ld exe=%s matched=%d sending sig=%d",
-              pid, linkbuf, matched, sent_sig);
+        debug("[tuxreaperd] scan pid=%ld exe=%s sending sig=%d",
+              pid, linkbuf, sent_sig);
         if (kill((pid_t)pid, sent_sig) < 0) {
             debug("[tuxreaperd] kill(%ld, %d) failed: %s", pid, sent_sig, strerror(errno));
         }
@@ -120,11 +161,11 @@ static void proc_remap_signal(int in_sig, int out_sig, const char *const *target
     closedir(proc);
 }
 
-static void broadcast_signal(int in_sig, int out_sig, const char *const *target_exes) {
-    debug("[tuxreaperd] broadcasting in_sig=%d out_sig=%d", in_sig, out_sig);
-    proc_remap_signal(in_sig, out_sig, target_exes);
+static void broadcast_signal(int in_sig, const struct sig_rule *rules, int num_rules) {
+    debug("[tuxreaperd] broadcasting in_sig=%d", in_sig);
+    proc_remap_signal(in_sig, rules, num_rules);
     usleep(BROADCAST_SCAN_DELAY_US);
-    proc_remap_signal(in_sig, out_sig, target_exes);
+    proc_remap_signal(in_sig, rules, num_rules);
 }
 
 static int count_descendants(void) {
@@ -156,10 +197,30 @@ static void handle_pending_signals(void) {
         if (!(pending & (sig_atomic_t)(1U << (sig - 1)))) continue;
 
         debug("[tuxreaperd] handling pending signal %d", sig);
-        if (sig == APACHE_IN_SIG) {
-            broadcast_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
+        if (sig == APACHE_IN_SIG || sig == NGINX_IN_SIG || sig == PHPFPM_IN_SIG) {
+            struct sig_rule rules[3];
+            int num_rules = 0;
+            if (sig == APACHE_IN_SIG) {
+                rules[num_rules].target_exes = apache_exes;
+                rules[num_rules].out_sig = APACHE_OUT_SIG;
+                rules[num_rules].prefix_match = 0;
+                num_rules++;
+            }
+            if (sig == NGINX_IN_SIG) {
+                rules[num_rules].target_exes = nginx_exes;
+                rules[num_rules].out_sig = NGINX_OUT_SIG;
+                rules[num_rules].prefix_match = 0;
+                num_rules++;
+            }
+            if (sig == PHPFPM_IN_SIG) {
+                rules[num_rules].target_exes = phpfpm_exes;
+                rules[num_rules].out_sig = PHPFPM_OUT_SIG;
+                rules[num_rules].prefix_match = 1;
+                num_rules++;
+            }
+            broadcast_signal(sig, rules, num_rules);
         } else {
-            broadcast_signal(sig, sig, apache_exes);
+            broadcast_signal(sig, NULL, 0);
         }
     }
 }

@@ -578,8 +578,10 @@ static void my_execvp(const char *file, char *const argv[], char *const envp[]) 
 }
 
 /* Apache hijacks SIGWINCH for graceful shutdown. When the outside world
-   sends SIGTERM, we translate it to SIGWINCH for Apache processes and send
-   the original signal to everyone else. */
+   sends SIGTERM, we translate it to SIGWINCH for Apache processes.
+   Nginx and PHP-FPM both use SIGQUIT for graceful shutdown, so we
+   translate SIGTERM to SIGQUIT for those processes. Everyone else
+   receives the original signal. */
 static const char * const apache_exes[] = {
     "/usr/sbin/apache2",
     "/usr/sbin/httpd",
@@ -588,6 +590,30 @@ static const char * const apache_exes[] = {
 };
 #define APACHE_IN_SIG  15   /* SIGTERM */
 #define APACHE_OUT_SIG 28   /* SIGWINCH */
+
+static const char * const nginx_exes[] = {
+    "/usr/sbin/nginx",
+    "/usr/local/nginx/sbin/nginx",
+    0
+};
+#define NGINX_IN_SIG  15   /* SIGTERM */
+#define NGINX_OUT_SIG 3    /* SIGQUIT */
+
+/* PHP-FPM installs versioned binaries like /usr/sbin/php-fpm8.4, so these
+   rules use prefix matching to catch any version without maintaining a list. */
+static const char * const phpfpm_exes[] = {
+    "/usr/sbin/php-fpm",
+    "/usr/local/sbin/php-fpm",
+    0
+};
+#define PHPFPM_IN_SIG  15   /* SIGTERM */
+#define PHPFPM_OUT_SIG 3    /* SIGQUIT */
+
+struct sig_rule {
+    const char *const *target_exes;
+    int out_sig;
+    int prefix_match;  /* 0 = exact, 1 = prefix */
+};
 
 #define DESCENDANT_TIMEOUT_SECONDS 60
 #define BROADCAST_SCAN_DELAY_US     100000
@@ -670,9 +696,9 @@ static long parse_pid(const char *s) {
 }
 
 /* Iterate /proc, read each process's /proc/<pid>/exe symlink, and send
-   out_sig to matching PIDs while sending in_sig to everyone else.
-   Skip PID 1 (the reaper itself). */
-static void proc_remap_signal(int in_sig, int out_sig, const char *const *target_exes) {
+   the first matching rule's out_sig to matching PIDs while sending in_sig
+   to everyone else. Skip PID 1 (the reaper itself). */
+static void proc_remap_signal(int in_sig, const struct sig_rule *rules, int num_rules) {
     int procfd = (int)sys_openat(AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY, 0);
 #ifdef TUXREAPERD_DEBUG
     debug_write("[tuxreaperd] proc_remap_signal openat fd=");
@@ -729,23 +755,36 @@ static void proc_remap_signal(int in_sig, int out_sig, const char *const *target
             if (linklen <= 0) continue;
             linkbuf[linklen] = '\0';
 
-            int matched = 0;
-            for (int i = 0; target_exes[i]; i++) {
-                long target_len = my_strlen(target_exes[i]);
-                if (linklen == target_len && my_strcmp(linkbuf, target_exes[i]) == 0) {
-                    matched = 1;
+            int sent_sig = in_sig;
+            for (int r = 0; r < num_rules; r++) {
+                int matched = 0;
+                for (int i = 0; rules[r].target_exes[i]; i++) {
+                    long target_len = my_strlen(rules[r].target_exes[i]);
+                    if (rules[r].prefix_match) {
+                        if (linklen >= target_len &&
+                            my_strncmp(linkbuf, rules[r].target_exes[i], target_len) == 0) {
+                            matched = 1;
+                            break;
+                        }
+                    } else {
+                        if (linklen == target_len &&
+                            my_strcmp(linkbuf, rules[r].target_exes[i]) == 0) {
+                            matched = 1;
+                            break;
+                        }
+                    }
+                }
+                if (matched) {
+                    sent_sig = rules[r].out_sig;
                     break;
                 }
             }
 
-            int sent_sig = matched ? out_sig : in_sig;
 #ifdef TUXREAPERD_DEBUG
             debug_write("[tuxreaperd] scan pid=");
             debug_write_int(pid);
             debug_write(" exe=");
             debug_write(linkbuf);
-            debug_write(" matched=");
-            debug_write_int(matched);
             debug_write(" sig=");
             debug_write_int(sent_sig);
             debug_write("\n");
@@ -764,17 +803,15 @@ static void sleep_us(long us) {
     sys_nanosleep(&req, 0);
 }
 
-static void broadcast_signal(int in_sig, int out_sig, const char *const *target_exes) {
+static void broadcast_signal(int in_sig, const struct sig_rule *rules, int num_rules) {
 #ifdef TUXREAPERD_DEBUG
     debug_write("[tuxreaperd] broadcasting in_sig=");
     debug_write_int(in_sig);
-    debug_write(" out_sig=");
-    debug_write_int(out_sig);
     debug_write("\n");
 #endif
-    proc_remap_signal(in_sig, out_sig, target_exes);
+    proc_remap_signal(in_sig, rules, num_rules);
     sleep_us(BROADCAST_SCAN_DELAY_US);
-    proc_remap_signal(in_sig, out_sig, target_exes);
+    proc_remap_signal(in_sig, rules, num_rules);
 }
 
 static int count_descendants(void) {
@@ -872,10 +909,30 @@ static void handle_pending_signals(void) {
         debug_write_int(sig);
         debug_write("\n");
 #endif
-        if (sig == APACHE_IN_SIG) {
-            broadcast_signal(APACHE_IN_SIG, APACHE_OUT_SIG, apache_exes);
+        if (sig == APACHE_IN_SIG || sig == NGINX_IN_SIG || sig == PHPFPM_IN_SIG) {
+            struct sig_rule rules[3];
+            int num_rules = 0;
+            if (sig == APACHE_IN_SIG) {
+                rules[num_rules].target_exes = apache_exes;
+                rules[num_rules].out_sig = APACHE_OUT_SIG;
+                rules[num_rules].prefix_match = 0;
+                num_rules++;
+            }
+            if (sig == NGINX_IN_SIG) {
+                rules[num_rules].target_exes = nginx_exes;
+                rules[num_rules].out_sig = NGINX_OUT_SIG;
+                rules[num_rules].prefix_match = 0;
+                num_rules++;
+            }
+            if (sig == PHPFPM_IN_SIG) {
+                rules[num_rules].target_exes = phpfpm_exes;
+                rules[num_rules].out_sig = PHPFPM_OUT_SIG;
+                rules[num_rules].prefix_match = 1;
+                num_rules++;
+            }
+            broadcast_signal(sig, rules, num_rules);
         } else {
-            broadcast_signal(sig, sig, apache_exes);
+            broadcast_signal(sig, 0, 0);
         }
     }
 }

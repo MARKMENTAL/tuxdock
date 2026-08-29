@@ -649,18 +649,18 @@ void TuxDockApp::ActionStopContainer() {
             OpenInput(
                 "Stop Container",
                 "Shutdown grace period in seconds for " + name +
-                    " (default 10, max " + std::to_string(kMaxStopTimeout) + "):",
+                    " (default 60, max " + std::to_string(kMaxStopTimeout) + "):",
                 [this, id](bool ok, const std::string& value) {
                     if (!ok) return;
-                    int seconds = 10;
+                    int seconds = 60;
                     if (!value.empty()) {
                         try {
                             seconds = std::stoi(value);
                         } catch (...) {
-                            seconds = 10;
+                            seconds = 60;
                         }
                     }
-                    if (seconds < 0) seconds = 10;
+                    if (seconds < 0) seconds = 60;
                     if (seconds > kMaxStopTimeout) seconds = kMaxStopTimeout;
                     BeginStopOperation(id, seconds);
                 });

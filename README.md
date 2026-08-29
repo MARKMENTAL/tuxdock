@@ -18,8 +18,129 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 - Direct `fork`/`exec` process execution for CLI-backed streaming and interactive commands.
 - Persistent container listings that retain exited containers.
 - Robust stop handling with state polling, timeout retry, and idempotent stop responses.
-- `tuxreaperd` micro init system: a tiny statically-linked C daemon mounted into created containers as PID 1, acting as a subreaper so orphaned processes never linger as zombies, broadcasting lifecycle signals (SIGTERM, SIGQUIT, SIGINT, SIGHUP, SIGUSR1, SIGUSR2) to the whole process tree via `kill(-1, sig)`, and propagating exit status. Includes architecture-specific `O_DIRECTORY` handling for `x86_64` and `aarch64`, plus Apache-aware `SIGTERM`→`SIGWINCH` remapping for graceful shutdown on both architectures. [Processes don't fear tuxreaperd!](tuxreaperdpromo.jpg)
+- `tuxreaperd` micro init system: a tiny statically-linked C daemon mounted into created containers as PID 1, acting as a subreaper so orphaned processes never linger as zombies, broadcasting lifecycle signals (SIGTERM, SIGQUIT, SIGINT, SIGHUP, SIGUSR1, SIGUSR2) to the whole process tree via `kill(-1, sig)`, and propagating exit status. Includes architecture-specific `O_DIRECTORY` handling for `x86_64` and `aarch64`, Apache-aware `SIGTERM`→`SIGWINCH`, nginx-aware `SIGTERM`→`SIGQUIT`, and PHP-FPM-aware `SIGTERM`→`SIGQUIT` remapping (with prefix matching for versioned binaries) for graceful shutdown, plus a 60-second container stop timeout so descendants have time to finish. Note: PHP-FPM graceful shutdown also requires `process_control_timeout` to be set in the PHP-FPM pool config (e.g., `process_control_timeout = 60s`). [Processes don't fear tuxreaperd!](tuxreaperdpromo.jpg)
 - About screen in-app with project/version/repository info.
+
+---
+
+## Why tuxreaperd?
+
+Most container inits are generic: they spawn one child, forward signals, and reap zombies. That is enough for simple apps, but it breaks down for classic web engines that violate standard UNIX signal conventions:
+
+- **Apache HTTPD** uses `SIGWINCH` for graceful shutdown.
+- **Nginx** uses `SIGQUIT` for graceful shutdown.
+- **PHP-FPM** uses `SIGQUIT` for graceful shutdown.
+
+`tuxreaperd` encodes those quirks directly. It scans `/proc/<pid>/exe` during signal broadcast and translates `SIGTERM` into the correct graceful-shutdown signal for each daemon, then waits up to 60 seconds for worker descendants to drain.
+
+| Feature / Scenario | `tini` | `dumb-init` | `mini-init-asm` | `tuxreaperd` (~4.7 KB) |
+| --- | --- | --- | --- | --- |
+| Automatic per-binary signal translation | No | Manual `--rewrite` only | No | Yes (Apache / nginx / PHP-FPM) |
+| Zero-config web graceful stops | No | No | No | Yes |
+| Post-exit descendant draining | No | No | No | Yes, 60-second bounded drain |
+| Multi-pass `/proc` signal sweeps | No | No | No | Two-pass sweep |
+| Freestanding / no libc | No | No (unless musl) | Yes | Yes |
+| Restart-on-crash | No | No | Yes (`EP_RESTART_ENABLED`) | No |
+| Configurable grace → `SIGKILL` timeout | No | No | Yes (`EP_GRACE_SECONDS`) | No (fixed 60s drain) |
+
+Static binary size comparison (KB):
+
+```text
+tuxreaperd       |## 4.7
+dumb-init (musl) |######## 20
+tini             |######### 23
+mini-init-asm    |################ 41
+
+dumb-init (glibc static) is ~700+ KB and omitted from the chart for scale.
+```
+
+`mini-init-asm` and `dumb-init` are excellent generic inits with useful extras like restart-on-crash or configurable kill timeouts, but they treat workloads as black boxes. `tuxreaperd` trades that generic flexibility for deep, zero-configuration automation of the three web-engine families that actually need signal translation.
+
+---
+
+## Web workload guide
+
+`tuxreaperd` is built for containerized web engines that violate standard UNIX signal conventions. This guide covers Apache HTTPD, nginx, and PHP-FPM.
+
+### Signal conventions
+
+| Engine | Graceful shutdown signal | Fast shutdown signal |
+| --- | --- | --- |
+| Apache HTTPD | `SIGWINCH` | `SIGTERM` |
+| Nginx | `SIGQUIT` | `SIGTERM` / `SIGINT` |
+| PHP-FPM | `SIGQUIT` | `SIGTERM` |
+
+When `docker stop` sends `SIGTERM` to PID 1, `tuxreaperd` inspects `/proc/<pid>/exe` and automatically translates the signal:
+
+- Apache processes receive `SIGWINCH`.
+- Nginx processes receive `SIGQUIT`.
+- PHP-FPM processes (matched by the `/usr/sbin/php-fpm` prefix) receive `SIGQUIT`.
+
+### Required PHP-FPM configuration
+
+PHP-FPM has a known quirk: on `SIGQUIT` its master process exits immediately unless `process_control_timeout` is configured. Without it, the FastCGI socket closes and nginx drops in-flight requests.
+
+Add this to your PHP-FPM pool config (e.g., `/etc/php/8.4/fpm/pool.d/www.conf`):
+
+```ini
+[global]
+process_control_timeout = 60s
+```
+
+Then restart PHP-FPM.
+
+### Starting services inside the container
+
+Create the container with tux-dock, which already injects `tuxreaperd` as PID 1 and sets `--stop-timeout=60`. Then start your web services as descendants:
+
+```bash
+# Start PHP-FPM in the background
+docker exec my-container /usr/sbin/php-fpm8.4 --nodaemonize &
+
+# Start nginx in the foreground (or background)
+docker exec my-container /usr/sbin/nginx -g 'daemon off;'
+```
+
+Make sure the binary paths match the ones `tuxreaperd` recognizes:
+- `/usr/sbin/apache2`, `/usr/sbin/httpd`, `/usr/local/apache2/bin/httpd`
+- `/usr/sbin/nginx`, `/usr/local/nginx/sbin/nginx`
+- `/usr/sbin/php-fpm*`, `/usr/local/sbin/php-fpm*`
+
+### Verification: long-running PHP request
+
+Create `/var/www/html/sleep.php`:
+
+```php
+<?php
+ob_end_clean();
+header('Content-Type: text/plain');
+header('Cache-Control: no-cache');
+
+echo "Test started at: " . date('H:i:s') . "\n";
+echo "Sleeping for 30 seconds...\n";
+flush();
+
+sleep(30);
+
+echo "Test finished at: " . date('H:i:s') . "\n";
+?>
+```
+
+Start the request, then stop the container:
+
+```bash
+curl -i http://localhost:8087/sleep.php
+# In another terminal:
+docker stop my-container
+```
+
+Expected result: the full response body is printed, including the “Test finished at: …” line, with no `curl: (18) transfer closed with outstanding read data remaining` error.
+
+### Troubleshooting
+
+- **Connection drops early** → Verify `process_control_timeout` is set in PHP-FPM and restart it.
+- **Container stops instantly** → The container must be recreated to pick up `--stop-timeout=60`; existing containers keep their original stop timeout.
+- **PHP-FPM not detected** → Confirm the binary path starts with `/usr/sbin/php-fpm` or `/usr/local/sbin/php-fpm`.
 
 ---
 
