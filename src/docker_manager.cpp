@@ -22,6 +22,12 @@ std::string apiError(const EngineResponse& response, const std::string& fallback
 
 }  // namespace
 
+DockerManager::DockerManager()
+    : engine_(std::make_unique<DockerEngineClient>()) {}
+
+DockerManager::DockerManager(std::unique_ptr<DockerEngineClient> engine)
+    : engine_(std::move(engine)) {}
+
 std::string DockerManager::processError(const std::string& fallback,
                                         const std::string& stderr_text) {
     return stderr_text.empty() ? fallback : stderr_text;
@@ -43,12 +49,12 @@ bool DockerManager::runProcess(const std::vector<std::string>& args,
 }
 
 bool DockerManager::checkConnection(std::string& error) const {
-    return engine_.checkConnection(error);
+    return engine_->checkConnection(error);
 }
 
 DockerManager::ListResult<DockerManager::ContainerInfo> DockerManager::getContainerList() const {
     ListResult<ContainerInfo> result;
-    const EngineResponse response = engine_.request("GET", "/containers/json?all=true");
+    const EngineResponse response = engine_->request("GET", "/containers/json?all=true");
     if (!response.ok()) {
         result.error = apiError(response, "Could not list containers.");
         return result;
@@ -59,7 +65,7 @@ DockerManager::ListResult<DockerManager::ContainerInfo> DockerManager::getContai
 
 DockerManager::ListResult<DockerManager::ImageInfo> DockerManager::getImageList() const {
     ListResult<ImageInfo> result;
-    const EngineResponse response = engine_.request("GET", "/images/json");
+    const EngineResponse response = engine_->request("GET", "/images/json");
     if (!response.ok()) {
         result.error = apiError(response, "Could not list images.");
         return result;
@@ -143,23 +149,31 @@ bool DockerManager::createContainer(const std::string& name,
 }
 
 bool DockerManager::startDetached(const std::string& id, std::string& message) const {
-    const EngineResponse response = engine_.request("POST", "/containers/" + id + "/start");
-    if (!response.ok()) {
-        message = apiError(response, "Could not start that container.");
-        return false;
+    const EngineResponse response = engine_->request("POST", "/containers/" + id + "/start");
+    if (response.ok()) {
+        message = "Container started in detached mode.";
+        return true;
     }
-    message = "Container started in detached mode.";
-    return true;
+    if (response.status_code == 304) {
+        message = "Container already started.";
+        return true;
+    }
+    message = apiError(response, "Could not start that container.");
+    return false;
 }
 
 bool DockerManager::deleteImage(const std::string& id, std::string& message) const {
-    const EngineResponse response = engine_.request("DELETE", "/images/" + id);
-    if (!response.ok()) {
-        message = apiError(response, "Could not delete that image.");
-        return false;
+    const EngineResponse response = engine_->request("DELETE", "/images/" + id);
+    if (response.ok()) {
+        message = "Image deleted.";
+        return true;
     }
-    message = "Image deleted.";
-    return true;
+    if (response.status_code == 404) {
+        message = "Image already deleted.";
+        return true;
+    }
+    message = apiError(response, "Could not delete that image.");
+    return false;
 }
 
 bool DockerManager::stopContainer(const std::string& id,
@@ -177,7 +191,7 @@ bool DockerManager::stopContainer(const std::string& id,
     // Docker holds the /stop response until the container stops or the grace
     // period expires. Use a per-request HTTP timeout longer than the grace
     // period so the client does not race Docker's own timeout.
-    const EngineResponse response = engine_.request(
+    const EngineResponse response = engine_->request(
         "POST",
         "/containers/" + id + "/stop?t=" + std::to_string(timeout_seconds),
         "",
@@ -193,13 +207,17 @@ bool DockerManager::stopContainer(const std::string& id,
 }
 
 bool DockerManager::removeContainer(const std::string& id, std::string& message) const {
-    const EngineResponse response = engine_.request("DELETE", "/containers/" + id);
-    if (!response.ok()) {
-        message = apiError(response, "Could not remove that container.");
-        return false;
+    const EngineResponse response = engine_->request("DELETE", "/containers/" + id);
+    if (response.ok()) {
+        message = "Container removed.";
+        return true;
     }
-    message = "Container removed.";
-    return true;
+    if (response.status_code == 404) {
+        message = "Container already removed.";
+        return true;
+    }
+    message = apiError(response, "Could not remove that container.");
+    return false;
 }
 
 bool DockerManager::execShell(const std::string& id, std::string& message) const {

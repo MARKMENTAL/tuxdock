@@ -6,6 +6,10 @@
 
 - Fixed duplicate port mappings shown in the container list TUI. Docker's `/containers/json` API returns separate `Ports` entries for IPv4 (`0.0.0.0`) and IPv6 (`::`) bindings of the same host port; the container parser now deduplicates these into a single `public:private` display string.
 - Added a container parser regression test covering IPv4/IPv6 duplicate port bindings.
+- Added `DockerStatePoller`, a background thread that silently refreshes cached container/image state from Docker every 5 seconds. This prevents state drift when an Engine API call times out but Docker still applied the change.
+- Made mutating Engine API operations idempotent: `removeContainer` treats `404` as success, `deleteImage` treats `404` as success, and `startDetached` treats `304` as success, eliminating spurious "already removed/started" failures on retry.
+- Refactored `DockerManager` to accept an injectable `DockerEngineClient` for unit testing.
+- Added unit tests for idempotent Docker manager operations and for `DockerStatePoller` lifecycle, periodic polling, and immediate refresh triggers.
 
 ### Version
 

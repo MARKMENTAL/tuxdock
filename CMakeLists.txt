@@ -38,6 +38,7 @@ add_executable(tux-dock
   src/operation_state.cpp
   src/stop_waiter.cpp
   src/docker_manager.cpp
+  src/docker_state_poller.cpp
 )
 
 target_link_libraries(tux-dock
@@ -92,6 +93,35 @@ if(BUILD_TESTING)
   target_include_directories(tux-dock-stop-sequence-tests PRIVATE src)
   target_compile_options(tux-dock-stop-sequence-tests PRIVATE -Wall -Wextra -Wpedantic)
   add_test(NAME tux-dock-stop-sequence-tests COMMAND tux-dock-stop-sequence-tests)
+
+  add_executable(tux-dock-manager-idempotent-tests
+    tests/test_docker_manager_idempotent.cpp
+    src/docker_manager.cpp
+    src/docker_engine_client.cpp
+    src/http_response_parser.cpp
+    src/container_parser.cpp
+    src/process_runner.cpp
+    src/stop_waiter.cpp
+  )
+  target_include_directories(tux-dock-manager-idempotent-tests PRIVATE src)
+  target_link_libraries(tux-dock-manager-idempotent-tests PRIVATE nlohmann_json::nlohmann_json)
+  target_compile_options(tux-dock-manager-idempotent-tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tux-dock-manager-idempotent-tests COMMAND tux-dock-manager-idempotent-tests)
+
+  add_executable(tux-dock-state-poller-tests
+    tests/test_docker_state_poller.cpp
+    src/docker_state_poller.cpp
+    src/docker_manager.cpp
+    src/docker_engine_client.cpp
+    src/http_response_parser.cpp
+    src/container_parser.cpp
+    src/process_runner.cpp
+    src/stop_waiter.cpp
+  )
+  target_include_directories(tux-dock-state-poller-tests PRIVATE src)
+  target_link_libraries(tux-dock-state-poller-tests PRIVATE nlohmann_json::nlohmann_json)
+  target_compile_options(tux-dock-state-poller-tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tux-dock-state-poller-tests COMMAND tux-dock-state-poller-tests)
 
   add_test(NAME tux-dock-docker-integration-tests
            COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_docker_integration.sh)

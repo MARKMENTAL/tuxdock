@@ -2,12 +2,16 @@
 
 #include "docker_engine_client.hpp"
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 class DockerManager {
 public:
+    DockerManager();
+    explicit DockerManager(std::unique_ptr<DockerEngineClient> engine);
+
     struct ContainerInfo {
         std::string id;
         std::string name;
@@ -47,7 +51,7 @@ public:
                              const std::string& command,
                              std::string& message) const;
 private:
-    DockerEngineClient engine_;
+    std::unique_ptr<DockerEngineClient> engine_;
 
     static std::string processError(const std::string& fallback,
                                     const std::string& stderr_text);

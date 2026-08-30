@@ -1,4 +1,5 @@
 #include "src/docker_manager.hpp"
+#include "src/docker_state_poller.hpp"
 #include "src/operation_state.hpp"
 
 #include <cctype>
@@ -153,6 +154,7 @@ private:
     std::atomic<bool> spinner_stop_{true};
     std::vector<std::thread> action_threads_;
     OperationState operation_state_;
+    DockerStatePoller state_poller_;
     std::size_t spinner_frame_ = 0;
     static constexpr int kMaxStopTimeout = 300;
 
@@ -201,7 +203,8 @@ private:
     void BeginStopOperation(const std::string& id, int timeout_seconds = 10);
     void RefreshState(const std::string& message = "Refreshing Docker state...");
     void ApplyRefreshResults(DockerManager::ListResult<DockerManager::ContainerInfo> containers,
-                             DockerManager::ListResult<DockerManager::ImageInfo> images);
+                             DockerManager::ListResult<DockerManager::ImageInfo> images,
+                             bool silent = false);
     static void ClearTerminal();
     void RunWithRestoredIO(const std::function<void()>&, bool clear_before = false,
                            bool clear_after = false);
@@ -282,7 +285,8 @@ void TuxDockApp::RefreshState(const std::string& message) {
 
 void TuxDockApp::ApplyRefreshResults(
     DockerManager::ListResult<DockerManager::ContainerInfo> containers,
-    DockerManager::ListResult<DockerManager::ImageInfo> images) {
+    DockerManager::ListResult<DockerManager::ImageInfo> images,
+    bool silent) {
     std::string error;
     if (containers.ok()) {
         containers_ = std::move(containers.items);
@@ -295,7 +299,9 @@ void TuxDockApp::ApplyRefreshResults(
         if (!error.empty()) error += "\n";
         error += "Images: " + images.error;
     }
-    SetStatus(error.empty() ? "Docker state refreshed." : "Refresh failed; cached state preserved.\n" + error);
+    if (!silent) {
+        SetStatus(error.empty() ? "Docker state refreshed." : "Refresh failed; cached state preserved.\n" + error);
+    }
 }
 
 void TuxDockApp::OpenInput(const std::string& title,
@@ -474,7 +480,7 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
                 StopSpinner();
                 modal_mode_ = ModalMode::None;
                 OpenMessage("Operation complete", message);
-                RefreshState();
+                state_poller_.trigger_now();
             });
             active->PostEvent(ftxui::Event::Custom);
         }
@@ -495,7 +501,7 @@ void TuxDockApp::BeginStopOperation(const std::string& id, int timeout_seconds) 
         if (!active || ftxui::ScreenInteractive::Active() != active) return;
         active->Post([this, stopped, message, containers = std::move(containers), images = std::move(images)]() mutable {
             RemoveSignalTraps();
-            ApplyRefreshResults(std::move(containers), std::move(images));
+            ApplyRefreshResults(std::move(containers), std::move(images), /*silent=*/true);
             operation_state_.complete(message);
             StopSpinner();
             modal_mode_ = ModalMode::None;
@@ -884,7 +890,19 @@ int TuxDockApp::Run() {
     });
     auto screen = ftxui::ScreenInteractive::TerminalOutput();
     screen_ = &screen;
+    state_poller_.start(
+        docker_,
+        [&screen](std::function<void()> fn) {
+            if (ftxui::ScreenInteractive::Active() == &screen) {
+                screen.Post(std::move(fn));
+            }
+        },
+        [this](DockerManager::ListResult<DockerManager::ContainerInfo> containers,
+               DockerManager::ListResult<DockerManager::ImageInfo> images) {
+            ApplyRefreshResults(std::move(containers), std::move(images), /*silent=*/true);
+        });
     screen.Loop(app);
+    state_poller_.stop();
     screen_ = nullptr;
     if (refresh_thread_.joinable()) refresh_thread_.join();
     if (spinner_thread_.joinable()) spinner_thread_.join();
