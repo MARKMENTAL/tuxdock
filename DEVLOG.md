@@ -1,5 +1,16 @@
 # Tux-Dock Development Log
 
+## 0.4.1-beta
+
+### TUI stability
+
+- Fixed duplicate port mappings shown in the container list TUI. Docker's `/containers/json` API returns separate `Ports` entries for IPv4 (`0.0.0.0`) and IPv6 (`::`) bindings of the same host port; the container parser now deduplicates these into a single `public:private` display string.
+- Added a container parser regression test covering IPv4/IPv6 duplicate port bindings.
+
+### Version
+
+- Bumped version to `0.4.1-beta`.
+
 ## 0.4-beta
 
 ### ARM64 / tuxreaperd fixes

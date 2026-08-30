@@ -251,7 +251,7 @@ ctest --test-dir build --output-on-failure
 
 ## About / Version
 
-- Version: `0.4-beta`
+- Version: `0.4.1-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
 - Forgejo: https://mentalnet.xyz/forgejo-v2/markmental/tuxdock

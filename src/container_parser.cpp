@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <sstream>
+#include <unordered_set>
 
 using json = nlohmann::json;
 
@@ -17,6 +18,7 @@ std::string portsFor(const json& item) {
     const auto it = item.find("Ports");
     if (it == item.end() || !it->is_array()) return {};
     std::ostringstream result;
+    std::unordered_set<std::string> seen;
     bool first = true;
     for (const auto& port : *it) {
         if (!port.is_object()) continue;
@@ -24,8 +26,11 @@ std::string portsFor(const json& item) {
         const auto private_it = port.find("PrivatePort");
         if (public_it == port.end() || private_it == port.end() ||
             !public_it->is_number() || !private_it->is_number()) continue;
+        const std::string mapping = std::to_string(public_it->get<int>()) + ":" +
+                                    std::to_string(private_it->get<int>());
+        if (!seen.insert(mapping).second) continue;
         if (!first) result << ", ";
-        result << *public_it << ":" << *private_it;
+        result << mapping;
         first = false;
     }
     return result.str();
