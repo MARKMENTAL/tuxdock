@@ -13,7 +13,7 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 - Busy-operation modals with a spinner and input blocking while Docker work completes.
 - Rich container display with state and forwarded ports.
 - Interactive shell handoff with clean terminal clear before/after shell transitions.
-- Image operations: pull/list/delete with curated quick picks and custom image support.
+- Image operations: pull/list/delete with full docker hub image support.
 - Docker Engine API access through `/var/run/docker.sock` for structured list and lifecycle operations.
 - Direct `fork`/`exec` process execution for CLI-backed streaming and interactive commands.
 - Persistent container listings that retain exited containers.
@@ -203,8 +203,9 @@ Current TUI actions:
 8. Remove Container
 9. Attach Shell to Running Container
 10. Run Detached Command in Container
-11. About Tux-Dock
-12. Exit
+11. Run Command in Container (with output)
+12. About Tux-Dock
+13. Exit
 
 ---
 
@@ -251,7 +252,7 @@ ctest --test-dir build --output-on-failure
 
 ## About / Version
 
-- Version: `0.4.1-beta`
+- Version: `0.4.2-beta`
 - Created by: `markmental`
 - GitHub: https://github.com/MARKMENTAL/tuxdock
 - Forgejo: https://mentalnet.xyz/forgejo-v2/markmental/tuxdock

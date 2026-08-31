@@ -1,5 +1,11 @@
 # Tux-Dock Development Log
 
+## 0.4.2-beta
+
+- Add the ability to save history of detached commands run in tuxdock. they are saved to the tuxdock running user's  ~/.tuxdock/detached-history.json path.
+- Adds ability to run commands in a container and observe the output from within tuxdock
+- Added the image-setup-scripts dir as a place to put useful shell scripts to be run in base containers for bringing up services like nginx 
+
 ## 0.4.1-beta
 
 ### TUI stability
