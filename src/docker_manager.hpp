@@ -50,6 +50,10 @@ public:
     bool execDetachedCommand(const std::string& containerId,
                              const std::string& command,
                              std::string& message) const;
+    bool execCommandWithOutput(const std::string& containerId,
+                               const std::string& command,
+                               std::string& output,
+                               std::string& message) const;
 private:
     std::unique_ptr<DockerEngineClient> engine_;
 

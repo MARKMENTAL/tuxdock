@@ -237,3 +237,38 @@ bool DockerManager::execDetachedCommand(const std::string& id,
     if (ok) message = "Command dispatched in detached mode.";
     return ok;
 }
+
+bool DockerManager::execCommandWithOutput(const std::string& id,
+                                          const std::string& command,
+                                          std::string& output,
+                                          std::string& message) const {
+    if (command.empty()) {
+        message = "Please provide a command to run.";
+        return false;
+    }
+
+    ProcessOptions options;
+    options.capture_stdout = true;
+    options.capture_stderr = true;
+    options.inherit_stdio = false;
+    const ProcessResult result = ProcessRunner::run(
+        {"docker", "exec", id, "/bin/sh", "-c", command}, options);
+
+    output = result.stdout_text;
+    if (!result.stderr_text.empty()) {
+        if (!output.empty()) output += "\n";
+        output += result.stderr_text;
+    }
+
+    if (result.signaled) {
+        message = "Command terminated by signal " + std::to_string(result.signal) + ".";
+        return false;
+    }
+    if (result.exit_code != 0) {
+        message = "Command exited with code " + std::to_string(result.exit_code) + ".";
+        return false;
+    }
+
+    message = "Command completed successfully.";
+    return true;
+}

@@ -2,13 +2,15 @@
 #include "src/docker_state_poller.hpp"
 #include "src/operation_state.hpp"
 
+#include <algorithm>
 #include <cctype>
-#include <csignal>
-#include <atomic>
 #include <chrono>
+#include <csignal>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -20,6 +22,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -101,14 +104,132 @@ void RemoveSignalTraps() {
     }
 }
 
+}  // namespace
+
+namespace {
+
+using nlohmann::json;
+
+struct DetachedHistoryEntry {
+    std::string command;
+    std::string timestamp;
+    std::string container;
+};
+
+constexpr std::size_t kMaxDetachedHistoryEntries = 200;
+
+std::filesystem::path GetDetachedHistoryPath() {
+    const char* home = std::getenv("HOME");
+    if (!home || !*home) return {};
+    return std::filesystem::path(home) / ".tuxdock" / "detached-history.json";
 }
+
+std::string CurrentTimestamp() {
+    const auto now = std::chrono::system_clock::now();
+    const auto time = std::chrono::system_clock::to_time_t(now);
+    std::tm tm {};
+    localtime_r(&time, &tm);
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+    return oss.str();
+}
+
+std::vector<DetachedHistoryEntry> LoadDetachedHistory() {
+    const auto path = GetDetachedHistoryPath();
+    if (path.empty() || !std::filesystem::exists(path)) return {};
+
+    std::ifstream file(path);
+    if (!file) return {};
+
+    try {
+        const auto data = json::parse(file);
+        std::vector<DetachedHistoryEntry> result;
+        for (const auto& item : data) {
+            DetachedHistoryEntry entry;
+            entry.command = item.value("command", "");
+            entry.timestamp = item.value("timestamp", "");
+            entry.container = item.value("container", "");
+            if (!entry.command.empty()) result.push_back(std::move(entry));
+        }
+        return result;
+    } catch (...) {
+        return {};
+    }
+}
+
+void SaveDetachedHistory(const std::vector<DetachedHistoryEntry>& entries) {
+    const auto path = GetDetachedHistoryPath();
+    if (path.empty()) return;
+
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+
+    std::ofstream file(path);
+    if (!file) return;
+
+    try {
+        json data = json::array();
+        for (const auto& entry : entries) {
+            data.push_back({
+                {"command", entry.command},
+                {"timestamp", entry.timestamp},
+                {"container", entry.container},
+            });
+        }
+        file << data.dump(2);
+    } catch (...) {
+    }
+}
+
+void AddDetachedHistoryEntry(const std::string& container,
+                             const std::string& command) {
+    if (command.empty()) return;
+
+    auto entries = LoadDetachedHistory();
+    entries.insert(entries.begin(), DetachedHistoryEntry{
+                                       command,
+                                       CurrentTimestamp(),
+                                       container,
+                                   });
+
+    std::size_t count = 0;
+    const auto end = std::remove_if(entries.begin(), entries.end(),
+                                    [&](const DetachedHistoryEntry& entry) {
+                                        if (entry.container != container) return false;
+                                        return ++count > kMaxDetachedHistoryEntries;
+                                    });
+    entries.erase(end, entries.end());
+    SaveDetachedHistory(entries);
+}
+
+void ClearDetachedHistory(const std::string& container) {
+    auto entries = LoadDetachedHistory();
+    const auto end = std::remove_if(entries.begin(), entries.end(),
+                                    [&](const DetachedHistoryEntry& entry) {
+                                        return entry.container == container;
+                                    });
+    entries.erase(end, entries.end());
+    SaveDetachedHistory(entries);
+}
+
+std::vector<DetachedHistoryEntry> LoadDetachedHistoryForContainer(
+    const std::string& container) {
+    const auto all = LoadDetachedHistory();
+    std::vector<DetachedHistoryEntry> result;
+    for (const auto& entry : all) {
+        if (entry.container == container) result.push_back(entry);
+    }
+    return result;
+}
+
+}  // namespace
 
 class TuxDockApp {
 public:
     int Run();
 
 private:
-    enum class ModalMode { None, Input, Confirm, Select, Message, Busy };
+    enum class ModalMode { None, Input, Confirm, Select, Message, Busy, History };
     struct RunContainerContext {
         std::string name;
         std::string image;
@@ -130,6 +251,7 @@ private:
         "Remove Container",
         "Attach Shell to Running Container",
         "Run Detached Command in Container",
+        "Run Command in Container (with output)",
         "About Tux-Dock",
         "Exit",
     };
@@ -145,6 +267,12 @@ private:
     ftxui::Component menu_component_ = ftxui::Menu(&menu_entries_, &menu_selected_);
     ftxui::Component input_component_ = ftxui::Input(&modal_input_, "Type here");
     ftxui::Component select_component_ = ftxui::Menu(&modal_select_entries_, &modal_select_index_);
+    std::vector<std::string> modal_history_display_;
+    std::vector<DetachedHistoryEntry> modal_history_entries_;
+    int modal_history_index_ = 0;
+    ftxui::Component history_component_ = ftxui::Menu(&modal_history_display_, &modal_history_index_);
+    std::string history_container_id_;
+    std::string history_container_name_;
     std::function<void(bool, const std::string&)> input_callback_;
     std::function<void(bool)> confirm_callback_;
     std::function<void(bool, int)> select_callback_;
@@ -166,15 +294,18 @@ private:
     ftxui::Element FormatImageList(const std::vector<DockerManager::ImageInfo>& images) const;
     void SetStatus(const std::string& message) { status_ = message; }
     void OpenInput(const std::string&, const std::string&,
-                   std::function<void(bool, const std::string&)>, bool secret = false);
+                   std::function<void(bool, const std::string&)>, bool secret = false,
+                   const std::string& initial_value = "");
     void OpenConfirm(const std::string&, const std::string&, std::function<void(bool)>);
     void OpenSelect(const std::string&, const std::string&, std::vector<std::string>,
                     std::function<void(bool, int)>);
     void OpenMessage(const std::string& title, const std::string& text);
     void OpenListMessage(const std::string& title, ftxui::Element content);
+    void OpenHistory();
     void ResolveInput(bool);
     void ResolveConfirm(bool);
     void ResolveSelect(bool);
+    void ResolveHistory();
     void CloseMessage();
     void ExecuteSelectedAction();
     void ActionPullImage();
@@ -187,6 +318,9 @@ private:
     void ActionRemoveContainer();
     void ActionExecShell();
     void ActionExecDetachedCommand();
+    void OpenDetachedCommandInput(const std::string& initial_value = "");
+    void ActionExecCommandWithOutput();
+    void OpenCommandWithOutputInput(const std::string& initial_value = "");
     void ActionAbout();
     void PromptPortCountAndRun(const std::shared_ptr<RunContainerContext>&);
     void PromptNextPort(const std::shared_ptr<RunContainerContext>&, int);
@@ -197,7 +331,8 @@ private:
         const std::string&,
         std::function<void(const std::string&, const std::string&)>);
     void RunDeferredStatusAction(const std::string&, std::function<std::string()>);
-    void BeginBusyOperation(const std::string&, const std::string&, std::function<std::string()>);
+    void BeginBusyOperation(const std::string&, const std::string&, std::function<std::string()>,
+                            std::function<void(const std::string&)> on_complete = nullptr);
     void StartSpinner();
     void StopSpinner();
     void BeginStopOperation(const std::string& id, int timeout_seconds = 10);
@@ -307,11 +442,12 @@ void TuxDockApp::ApplyRefreshResults(
 void TuxDockApp::OpenInput(const std::string& title,
                            const std::string& text,
                            std::function<void(bool, const std::string&)> callback,
-                           bool secret) {
+                           bool secret,
+                           const std::string& initial_value) {
     modal_mode_ = ModalMode::Input;
     modal_title_ = title;
     modal_text_ = text;
-    modal_input_.clear();
+    modal_input_ = initial_value;
 
     ftxui::InputOption option;
     option.password = secret;
@@ -463,7 +599,8 @@ void TuxDockApp::StopSpinner() {
 
 void TuxDockApp::BeginBusyOperation(const std::string& title,
                                     const std::string& message,
-                                    std::function<std::string()> action) {
+                                    std::function<std::string()> action,
+                                    std::function<void(const std::string&)> on_complete) {
     operation_state_.begin(title, message);
     modal_mode_ = ModalMode::Busy;
     spinner_frame_ = 0;
@@ -471,15 +608,19 @@ void TuxDockApp::BeginBusyOperation(const std::string& title,
     auto* active = screen_;
     StartSpinner();
     if (active) active->PostEvent(ftxui::Event::Custom);
-    action_threads_.emplace_back([this, active, action = std::move(action)]() mutable {
+    action_threads_.emplace_back([this, active, action = std::move(action), on_complete = std::move(on_complete)]() mutable {
         const auto message = action();
         if (active && ftxui::ScreenInteractive::Active() == active) {
-            active->Post([this, message] {
+            active->Post([this, message, on_complete = std::move(on_complete)] {
                 RemoveSignalTraps();
                 operation_state_.complete(message);
                 StopSpinner();
                 modal_mode_ = ModalMode::None;
-                OpenMessage("Operation complete", message);
+                if (on_complete) {
+                    on_complete(message);
+                } else {
+                    OpenMessage("Operation complete", message);
+                }
                 state_poller_.trigger_now();
             });
             active->PostEvent(ftxui::Event::Custom);
@@ -707,23 +848,105 @@ void TuxDockApp::ActionExecDetachedCommand() {
     PromptContainerSelection(
         "Run Detached Command",
         [this](const std::string& id, const std::string& name) {
-            OpenInput(
-                "Detached Command", "Enter command to run in " + name + ":",
-                [this, id](bool ok, const std::string& command) {
-                    if (!ok) return;
-                    BeginBusyOperation(
-                        "Running command", "Please wait...",
-                        [this, id, command] {
-                            std::string message;
-                            docker_.execDetachedCommand(id, command, message);
-                            return message;
-                        });
-                });
+            history_container_id_ = id;
+            history_container_name_ = name;
+            OpenDetachedCommandInput();
         });
 }
 
+void TuxDockApp::OpenDetachedCommandInput(const std::string& initial_value) {
+    OpenInput(
+        "Detached Command",
+        "Enter command to run in " + history_container_name_ + ":  (F1: history)",
+        [this](bool ok, const std::string& command) {
+            if (!ok) return;
+            AddDetachedHistoryEntry(history_container_name_, command);
+            BeginBusyOperation(
+                "Running command", "Please wait...",
+                [this, command] {
+                    std::string message;
+                    docker_.execDetachedCommand(history_container_id_, command, message);
+                    return message;
+                });
+        },
+        /*secret=*/false,
+        initial_value);
+}
+
+void TuxDockApp::OpenHistory() {
+    modal_history_entries_ =
+        LoadDetachedHistoryForContainer(history_container_name_);
+    modal_history_display_.clear();
+    modal_history_display_.push_back("[Enter new command]");
+    for (const auto& entry : modal_history_entries_) {
+        modal_history_display_.push_back("[" + entry.timestamp + "] " + entry.command);
+    }
+    modal_history_display_.push_back("[Clear history]");
+    modal_history_index_ = 0;
+    history_component_ = ftxui::Menu(&modal_history_display_, &modal_history_index_);
+    modal_title_ = "Detached Command History - " + history_container_name_;
+    modal_mode_ = ModalMode::History;
+}
+
+void TuxDockApp::ResolveHistory() {
+    const int selected = modal_history_index_;
+    modal_mode_ = ModalMode::Input;
+
+    if (selected == 0) {
+        modal_input_.clear();
+        return;
+    }
+
+    if (selected == static_cast<int>(modal_history_display_.size()) - 1) {
+        ClearDetachedHistory(history_container_name_);
+        modal_input_.clear();
+        return;
+    }
+
+    const auto& entry = modal_history_entries_[static_cast<std::size_t>(selected) - 1];
+    modal_input_ = entry.command;
+}
+
+void TuxDockApp::ActionExecCommandWithOutput() {
+    PromptContainerSelection(
+        "Run Command with Output",
+        [this](const std::string& id, const std::string& name) {
+            history_container_id_ = id;
+            history_container_name_ = name;
+            OpenCommandWithOutputInput();
+        });
+}
+
+void TuxDockApp::OpenCommandWithOutputInput(const std::string& initial_value) {
+    OpenInput(
+        "Command with Output",
+        "Enter command to run in " + history_container_name_ + ":  (F1: history)",
+        [this](bool ok, const std::string& command) {
+            if (!ok) return;
+            AddDetachedHistoryEntry(history_container_name_, command);
+            BeginBusyOperation(
+                "Running command", "Please wait...",
+                [this, command] {
+                    std::string output;
+                    std::string message;
+                    const bool success = docker_.execCommandWithOutput(
+                        history_container_id_, command, output, message);
+                    return success ? output : (message + "\n" + output);
+                },
+                [this](const std::string& result) {
+                    const bool failed = result.find("Command exited with code") == 0 ||
+                                        result.find("Command terminated by signal") == 0;
+                    OpenListMessage(
+                        failed ? "Command failed" : "Command output",
+                        ftxui::vbox({ftxui::paragraph(result)}));
+                });
+        },
+        /*secret=*/false,
+        initial_value);
+}
+
 void TuxDockApp::ActionAbout() {
-    OpenMessage("About Tux-Dock", "Tux-Dock 0.4.1-beta | Created by markmental");
+    OpenMessage("About Tux-Dock", "Tux-Dock 0.4.2-beta | Created by markmental");
 }
 
 void TuxDockApp::ExecuteSelectedAction() {
@@ -738,8 +961,9 @@ void TuxDockApp::ExecuteSelectedAction() {
         case 7: ActionRemoveContainer(); break;
         case 8: ActionExecShell(); break;
         case 9: ActionExecDetachedCommand(); break;
-        case 10: ActionAbout(); break;
-        case 11:
+        case 10: ActionExecCommandWithOutput(); break;
+        case 11: ActionAbout(); break;
+        case 12:
             if (screen_) screen_->ExitLoopClosure()();
             break;
         default: break;
@@ -752,6 +976,10 @@ bool TuxDockApp::OnEvent(ftxui::Event event) {
         return true;
     }
     if (modal_mode_ == ModalMode::Input) {
+        if (event == ftxui::Event::F1) {
+            OpenHistory();
+            return true;
+        }
         if (event == ftxui::Event::Return) {
             ResolveInput(true);
             return true;
@@ -761,6 +989,17 @@ bool TuxDockApp::OnEvent(ftxui::Event event) {
             return true;
         }
         return input_component_->OnEvent(event);
+    }
+    if (modal_mode_ == ModalMode::History) {
+        if (event == ftxui::Event::Return) {
+            ResolveHistory();
+            return true;
+        }
+        if (event == ftxui::Event::Escape) {
+            modal_mode_ = ModalMode::Input;
+            return true;
+        }
+        return history_component_->OnEvent(event);
     }
     if (modal_mode_ == ModalMode::Confirm) {
         if (event == ftxui::Event::Return || event == ftxui::Event::Character("y")) {
@@ -817,6 +1056,13 @@ ftxui::Element TuxDockApp::RenderModal() const {
             select_component_->Render() | frame | vscroll_indicator,
         });
         footer = text("Up/Down: choose   Enter: confirm   Esc: cancel") | dim;
+    } else if (modal_mode_ == ModalMode::History) {
+        body = vbox(Elements{
+            paragraph("Select a previous command for " + history_container_name_ + ":"),
+            separator(),
+            history_component_->Render() | frame | vscroll_indicator,
+        });
+        footer = text("Up/Down: choose   Enter: select   Esc: cancel") | dim;
     } else if (modal_mode_ == ModalMode::Busy) {
         static const std::string spinner = "|/-\\";
         Elements busy_elements = Elements{
