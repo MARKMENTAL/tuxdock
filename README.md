@@ -17,12 +17,12 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
   - [Verification: long-running PHP request](#verification-long-running-php-request)
   - [Troubleshooting](#troubleshooting)
 - [Build Requirements](#build-requirements)
-- [Build & Run](#build-run)
+- [Build & Run](#build--run)
 - [Menu Overview](#menu-overview)
 - [Design Overview](#design-overview)
   - [Responsibilities](#responsibilities)
 - [Testing](#testing)
-- [About / Version](#about-version)
+- [About / Version](#about--version)
 - [License](#license)
 
 ---
