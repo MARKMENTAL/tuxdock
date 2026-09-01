@@ -6,6 +6,27 @@ It gives you a guided, keyboard-first TUI for common Docker operations without m
 
 ---
 
+## Table of Contents
+
+- [Features](#features)
+- [Why tuxreaperd?](#why-tuxreaperd)
+- [Web workload guide](#web-workload-guide)
+  - [Signal conventions](#signal-conventions)
+  - [Required PHP-FPM configuration](#required-php-fpm-configuration)
+  - [Starting services inside the container](#starting-services-inside-the-container)
+  - [Verification: long-running PHP request](#verification-long-running-php-request)
+  - [Troubleshooting](#troubleshooting)
+- [Build Requirements](#build-requirements)
+- [Build & Run](#build-run)
+- [Menu Overview](#menu-overview)
+- [Design Overview](#design-overview)
+  - [Responsibilities](#responsibilities)
+- [Testing](#testing)
+- [About / Version](#about-version)
+- [License](#license)
+
+---
+
 ## Features
 
 - Interactive Docker workflows through a single-screen TUI with modal steps.
