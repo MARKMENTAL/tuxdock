@@ -158,7 +158,7 @@ Expected result: the full response body is printed, including the “Test finish
 
 ```bash
 # Clone the repo
-git clone https://mentalnet.xyz/forgejo/markmental/tuxdock.git
+git clone https://mentalnet.xyz/forgejo-v2/markmental/tuxdock.git
 cd tuxdock
 
 # Configure, build, and test (FTXUI and nlohmann/json are fetched automatically)
